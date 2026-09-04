@@ -1341,6 +1341,9 @@ func main() {
 			// A completed campaign whose linked segments grow is restarted
 			// through the full launch checks, never by a raw status flip.
 			segmentService.SetCampaignStarter(campaignService)
+			// Sweep enrolments are audited as campaign updates so teammates'
+			// Leads tabs refresh through the audit spine.
+			segmentService.SetEnrolmentAuditor(auditService)
 		}
 		if contactService != nil {
 			contactService.SetCampaignWaker(campaignService)

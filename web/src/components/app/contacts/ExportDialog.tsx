@@ -35,6 +35,7 @@ import exportContacts, {
 } from "@/lib/api/client/app/contacts/exportContacts";
 import type SearchContacts from "@/lib/api/models/app/contacts/SearchContacts";
 import { Label, TextInput } from "@/components/ui/field";
+import { hasNarrowingFilters } from "./filters/helpers";
 
 interface Props {
     open: boolean;
@@ -42,6 +43,23 @@ interface Props {
     filters: SearchContacts;
     selectedIds: string[];
     totalKnown: number | null;
+    // Opened from a campaign's Leads tab or a segment page: "everyone" means
+    // every lead or member (baseFilters), never the whole workspace.
+    scopeContext?: ExportScopeContext;
+}
+
+export interface ExportScopeContext {
+    kind: "campaign" | "segment";
+    name: string;
+    baseFilters: SearchContacts;
+}
+
+function slugify(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
 }
 
 const STANDARD_FIELDS: { id: string; label: string; preset: "basic" | "full" | "campaign" }[] = [
@@ -70,7 +88,7 @@ const CAMPAIGN_FIELDS: { id: string; label: string }[] = [
 const PRESETS: { id: "basic" | "full" | "campaign-ready" | "custom"; label: string; hint: string }[] = [
     { id: "basic",          label: "Basic",          hint: "Core contact details — what most CRMs expect." },
     { id: "full",           label: "Full",           hint: "Every standard column including categories + campaigns." },
-    { id: "campaign-ready", label: "Campaign-ready", hint: "Email + names + company — the minimum to import elsewhere." },
+    { id: "campaign-ready", label: "Campaign-ready", hint: "Email, names and company, plus lead status and engagement inside a campaign." },
     { id: "custom",         label: "Custom",         hint: "Pick exactly what you need." },
 ];
 
@@ -80,36 +98,17 @@ const FORMATS: { id: ExportFormat; label: string; sub: string; Icon: React.Compo
     { id: "json", label: "JSON", sub: "Structured, round-trips via import", Icon: FileJsonIcon },
 ];
 
-function presetFields(p: "basic" | "full" | "campaign-ready" | "custom"): string[] {
+function presetFields(p: "basic" | "full" | "campaign-ready" | "custom", inCampaign = false): string[] {
     switch (p) {
         case "basic":
             return STANDARD_FIELDS.filter((f) => f.preset === "basic").map((f) => f.id);
         case "full":
             return STANDARD_FIELDS.map((f) => f.id);
         case "campaign-ready":
-            return ["email", "first_name", "last_name", "company"];
+            return ["email", "first_name", "last_name", "company", ...(inCampaign ? CAMPAIGN_FIELDS.map((f) => f.id) : [])];
         case "custom":
             return [];
     }
-}
-
-function hasActiveFilters(f: SearchContacts): boolean {
-    return (
-        !!f.query ||
-        f.filters.length > 0 ||
-        (f.campaign_ids?.length ?? 0) > 0 ||
-        (f.category_ids?.length ?? 0) > 0 ||
-        (f.segment_ids?.length ?? 0) > 0 ||
-        f.subscribed !== undefined ||
-        !!f.lead_status ||
-        !!f.engagement ||
-        f.min_campaigns !== undefined ||
-        f.max_campaigns !== undefined ||
-        !!f.created_after ||
-        !!f.created_before ||
-        !!f.updated_after ||
-        !!f.updated_before
-    );
 }
 
 export default function ExportDialog({
@@ -118,11 +117,15 @@ export default function ExportDialog({
     filters,
     selectedIds,
     totalKnown,
+    scopeContext,
 }: Props) {
     const inCampaign = (filters.campaign_ids?.length ?? 0) === 1;
+    // Inside a campaign or segment the scope's own ids are not a filter.
+    const narrowed = hasNarrowingFilters(filters, scopeContext?.baseFilters);
+    const noun = scopeContext?.kind === "campaign" ? "lead" : "member";
     const [format, setFormat] = React.useState<ExportFormat>("csv");
     const [scope, setScope] = React.useState<ExportScope>(() =>
-        selectedIds.length > 0 ? "selected" : hasActiveFilters(filters) ? "filtered" : "all",
+        selectedIds.length > 0 ? "selected" : narrowed ? "filtered" : "all",
     );
     const [preset, setPreset] = React.useState<"basic" | "full" | "campaign-ready" | "custom">("basic");
     const [fields, setFields] = React.useState<string[]>(presetFields("basic"));
@@ -135,17 +138,21 @@ export default function ExportDialog({
     // change it after the user picks one manually — that's annoying.
     React.useEffect(() => {
         if (open) {
-            setScope(selectedIds.length > 0 ? "selected" : hasActiveFilters(filters) ? "filtered" : "all");
-            setPreset("basic");
-            setFields(presetFields("basic"));
+            setScope(selectedIds.length > 0 ? "selected" : narrowed ? "filtered" : "all");
+            setPreset(scopeContext?.kind === "campaign" ? "campaign-ready" : "basic");
+            setFields(presetFields(scopeContext?.kind === "campaign" ? "campaign-ready" : "basic", inCampaign));
             setCustomFieldKeys([]);
-            setFilename("");
+            setFilename(
+                scopeContext
+                    ? `${slugify(scopeContext.name) || scopeContext.kind}-${scopeContext.kind === "campaign" ? "leads" : "contacts"}`
+                    : "",
+            );
         }
     }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
     function applyPreset(p: "basic" | "full" | "campaign-ready" | "custom") {
         setPreset(p);
-        if (p !== "custom") setFields(presetFields(p));
+        if (p !== "custom") setFields(presetFields(p, inCampaign));
     }
 
     function toggleField(id: string) {
@@ -177,12 +184,19 @@ export default function ExportDialog({
         setLoading(true);
         try {
             // A selected-rows export from a campaign still sends the filters so
-            // the server can fill the lead_* columns for that campaign.
+            // the server can fill the lead_* columns for that campaign. Inside a
+            // campaign or segment, "everyone" is the scope's own filter.
+            const wholeScope = scope === "all" && !!scopeContext;
+            const effectiveFilters = wholeScope
+                ? scopeContext.baseFilters
+                : scope === "filtered" || (scope === "selected" && inCampaign)
+                  ? filters
+                  : undefined;
             const result = await exportContacts({
                 format,
-                scope,
+                scope: wholeScope ? "filtered" : scope,
                 contact_ids: scope === "selected" ? selectedIds : undefined,
-                filters: scope === "filtered" || (scope === "selected" && inCampaign) ? filters : undefined,
+                filters: effectiveFilters,
                 fields: effective,
                 filename: filename.trim() || undefined,
             });
@@ -197,7 +211,15 @@ export default function ExportDialog({
         }
     }
 
-    const scopeCount = scope === "selected" ? selectedIds.length : totalKnown ?? 0;
+    // totalKnown is the current, possibly narrowed, list: the whole-scope
+    // count is only known when nothing narrows it.
+    const scopeCount =
+        scope === "selected"
+            ? selectedIds.length
+            : scope === "all" && narrowed
+              ? null
+              : (totalKnown ?? 0);
+    const scopeLabel = scopeCount === null ? `Every ${scopeContext ? noun : "contact"}` : `${scopeCount.toLocaleString()} contacts`;
 
     return (
         <AnimatePresence>
@@ -265,20 +287,20 @@ export default function ExportDialog({
                                 </div>
                             </Section>
 
-                            <Section title="Scope" subtitle={`${scopeCount.toLocaleString()} contacts will be exported.`}>
+                            <Section title="Scope" subtitle={`${scopeLabel} will be exported.`}>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                     <ScopeButton
                                         active={scope === "all"}
                                         onClick={() => setScope("all")}
-                                        title="Everyone"
-                                        sub="All your contacts"
+                                        title={scopeContext ? `Every ${noun}` : "Everyone"}
+                                        sub={scopeContext ? `All of ${scopeContext.name}` : "All your contacts"}
                                     />
                                     <ScopeButton
                                         active={scope === "filtered"}
                                         onClick={() => setScope("filtered")}
                                         title="Filtered"
-                                        sub={hasActiveFilters(filters) ? "Matches current filters" : "No filters set"}
-                                        disabled={!hasActiveFilters(filters)}
+                                        sub={narrowed ? "Matches current filters" : "No filters set"}
+                                        disabled={!narrowed}
                                     />
                                     <ScopeButton
                                         active={scope === "selected"}
@@ -393,7 +415,7 @@ export default function ExportDialog({
 
                         <footer className="h-12 px-3 border-t border-slate-200 flex items-center gap-1.5 shrink-0 bg-slate-50/30">
                             <span className="text-[11px] text-slate-400 truncate min-w-0">
-                                {scopeCount.toLocaleString()} contacts · {fields.length + customFieldKeys.length} columns
+                                {scopeLabel} · {fields.length + customFieldKeys.length} columns
                             </span>
                             <button
                                 type="button"

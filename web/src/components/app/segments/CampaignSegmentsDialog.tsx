@@ -10,6 +10,7 @@ import toast from "react-hot-toast";
 import { SearchInput } from "@/components/ui/field";
 import { useConfirm } from "@/hooks/context/confirm";
 import { useCampaignSegments, useSegments, useSetCampaignSegments } from "@/lib/api/hooks/app/segments";
+import { linkTotals, linksEmptyReason } from "./linkedSegments";
 import type MiniCampaign from "@/lib/api/models/app/campaigns/MiniCampaign";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
@@ -94,13 +95,18 @@ export default function CampaignSegmentsDialog({
         if (busy || !seeded) return;
         try {
             const res = await save.mutateAsync({ campaignId: campaign.id, segmentIds: [...picked] });
-            toast.success(
-                picked.size === 0
-                    ? "Segments detached"
-                    : res.added === 0
-                      ? `Linked ${picked.size} segment${picked.size === 1 ? "" : "s"}; every member is already a lead`
-                      : `Linked ${picked.size} segment${picked.size === 1 ? "" : "s"} and added ${res.added.toLocaleString()} lead${res.added === 1 ? "" : "s"}`,
-            );
+            const linked = `Linked ${picked.size} segment${picked.size === 1 ? "" : "s"}`;
+            const { members, held } = linkTotals(res.data);
+            if (picked.size === 0) {
+                toast.success("Segments detached");
+            } else if (res.added > 0) {
+                toast.success(`${linked} and added ${res.added.toLocaleString()} lead${res.added === 1 ? "" : "s"}`);
+            } else if (members === 0 || held > 0) {
+                // Say why the list is still empty; "already a lead" here would be a lie.
+                toast(`${linked}. ${linksEmptyReason(res.data)}`);
+            } else {
+                toast.success(`${linked}; every member is already a lead`);
+            }
             onClose();
         } catch (err) {
             toast.error(buildError(err as AppError));

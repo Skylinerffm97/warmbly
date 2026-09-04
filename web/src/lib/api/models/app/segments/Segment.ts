@@ -83,13 +83,17 @@ export interface SegmentAddToCampaignResult {
     members: number;
 }
 
-// One segment linked to a campaign as a live audience source.
+// One segment linked to a campaign as a live audience source. The counts are
+// live: members now, members that are leads of this campaign, and members
+// held out because a lead was removed from the campaign by hand.
 export interface CampaignSegmentLink {
     segment_id: string;
     name: string;
     color: string;
     description: string;
     contact_count: number;
+    lead_count: number;
+    held_out_count: number;
     linked_at: string;
 }
 

@@ -414,6 +414,11 @@ func (r *contactRepository) Add(ctx context.Context, userID string, orgID uuid.U
 			return nil, errx.InternalError()
 		}
 		campaignLinks = append(campaignLinks, added...)
+		// A hand-picked add ends a manual removal, as the bulk add does.
+		if _, err := tx.Exec(ctx, `DELETE FROM campaign_lead_removals WHERE contact_id = $1 AND campaign_id = ANY($2)`, ncontacts[i].ID, cids); err != nil {
+			db.CaptureError(err, "", nil, "campaign_lead_removals clear")
+			return nil, errx.InternalError()
+		}
 		// A contact created from a campaign's Leads tab is attributed to that
 		// campaign by name, resolved here rather than trusted from the client.
 		if created[i] && normalized[i].Source == models.ContactSourceCampaign && normalized[i].SourceDetail == "" && len(added) > 0 {

@@ -80,6 +80,7 @@ export default function FilterBar({
     setFilters,
     activeCampaign,
     hideSegments,
+    resetToken,
     total,
     loading,
     onSaveAsSegment,
@@ -89,6 +90,8 @@ export default function FilterBar({
     activeCampaign?: MiniCampaign;
     // On a segment page the segment scope is fixed, so the pill is hidden.
     hideSegments?: boolean;
+    // Bumped when the parent clears the filters, so blank extra pills go too.
+    resetToken?: number;
     total: number;
     loading?: boolean;
     onSaveAsSegment?: (draft: SearchContacts) => void;
@@ -155,6 +158,12 @@ export default function FilterBar({
         setFilters((s) => ({ ...s, filters: s.filters.filter((_, j) => j !== i) }));
         setOpenKey(null);
     }
+
+    React.useEffect(() => {
+        if (resetToken === undefined) return;
+        setExtras([]);
+        setOpenKey(null);
+    }, [resetToken]);
 
     const active = countActiveFilters(filters, campaignCtx);
     function clearAll() {
