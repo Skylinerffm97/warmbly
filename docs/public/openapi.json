@@ -22315,7 +22315,14 @@
               "note",
               "meeting_booked",
               "meeting_rescheduled",
-              "meeting_canceled"
+              "meeting_canceled",
+              "contact_created",
+              "campaign_added",
+              "campaign_removed",
+              "category_added",
+              "category_removed",
+              "form_submitted",
+              "page_hit"
             ]
           },
           "at": {
@@ -22392,6 +22399,90 @@
             "type": "string",
             "format": "uuid",
             "description": "Note author."
+          },
+          "machine": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "email_opened / email_clicked: true when an automated fetcher (a mail privacy proxy, a security gateway following links) did it rather than the person."
+          },
+          "machine_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which rule caught a machine open or click: prefetch, instant or burst. Absent on an open summarised from the lead alone."
+          },
+          "link": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContactLinkClick"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "email_clicked: the exact link clicked. Absent on clicks recorded before per-link attribution."
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EngagementOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "email_opened / email_clicked: where the event came from, when it was logged per event."
+          },
+          "category_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "category_added / category_removed: the category, as it was at the time."
+          },
+          "category_title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "category_added / category_removed: the category's title at the time."
+          },
+          "source_detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "contact_created: the file, campaign, sheet or API key name behind `source`."
+          },
+          "form_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "form_submitted: the hosted form."
+          },
+          "form_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "form_submitted: the form's name."
+          },
+          "page_hit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WebsitePageHit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "page_hit: the page view from the website tracking snippet. `subject` carries the page title, or its path when untitled."
           }
         }
       },
@@ -28649,6 +28740,196 @@
               "type": "string"
             },
             "description": "Values that were neither a valid address nor a valid domain."
+          }
+        }
+      },
+      "ContactLinkClick": {
+        "type": "object",
+        "description": "The link behind an email_clicked event: where it went, the anchor text it was minted from, and the UTM parameters the destination carried.",
+        "required": [
+          "id",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "Anchor text the link was minted from."
+          },
+          "utm_source": {
+            "type": "string"
+          },
+          "utm_medium": {
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": "string"
+          },
+          "utm_term": {
+            "type": "string"
+          },
+          "utm_content": {
+            "type": "string"
+          },
+          "user_agent": {
+            "type": "string"
+          }
+        }
+      },
+      "EngagementOrigin": {
+        "type": "object",
+        "description": "Where an open or click came from. Every field is omitted when unknown; the source address itself is never stored.",
+        "properties": {
+          "client": {
+            "type": "string",
+            "description": "Mail client or image proxy named by the user agent (Gmail, Apple Mail, Outlook)."
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "browser_version": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          }
+        }
+      },
+      "WebsitePageHit": {
+        "type": "object",
+        "description": "A page view reported by the website tracking snippet and tied to the contact through an email-link ticket.",
+        "required": [
+          "id",
+          "visitor_id",
+          "session_key",
+          "occurred_at",
+          "url",
+          "path",
+          "title",
+          "referrer",
+          "referrer_domain",
+          "landing",
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_term",
+          "utm_content",
+          "device_type",
+          "os",
+          "browser",
+          "browser_version",
+          "device_brand",
+          "language",
+          "timezone",
+          "screen_width",
+          "screen_height",
+          "country_code",
+          "region",
+          "city"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visitor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_key": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "referrer": {
+            "type": "string"
+          },
+          "referrer_domain": {
+            "type": "string"
+          },
+          "landing": {
+            "type": "boolean",
+            "description": "True for the first view of a session."
+          },
+          "utm_source": {
+            "type": "string"
+          },
+          "utm_medium": {
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": "string"
+          },
+          "utm_term": {
+            "type": "string"
+          },
+          "utm_content": {
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "browser_version": {
+            "type": "string"
+          },
+          "device_brand": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "screen_width": {
+            "type": "integer"
+          },
+          "screen_height": {
+            "type": "integer"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
           }
         }
       }
