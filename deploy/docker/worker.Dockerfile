@@ -14,11 +14,11 @@ RUN apk add --no-cache git ca-certificates && \
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,id=s/b90b6ef7-8f22-4aca-a9f5-d44371bd1fa8-/go/pkg/mod,target=/go/pkg/mod go mod download
 
 COPY . .
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,id=s/b90b6ef7-8f22-4aca-a9f5-d44371bd1fa8-/go/pkg/mod,target=/go/pkg/mod \
+    --mount=type=cache,id=s/b90b6ef7-8f22-4aca-a9f5-d44371bd1fa8-/root/.cache/go-build,target=/root/.cache/go-build \
     set -eux; \
     if echo "$GO_TAGS" | grep -qw kafka; then CGO=1; TAGS="musl kafka"; else CGO=0; TAGS=""; fi; \
     CGO_ENABLED=$CGO GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags "$TAGS" -ldflags="-s -w -X github.com/warmbly/warmbly/internal/version.Version=$VERSION -X github.com/warmbly/warmbly/internal/version.Commit=$COMMIT -X github.com/warmbly/warmbly/internal/version.BuiltAt=$BUILT_AT" -o /out/worker ./cmd/worker

@@ -26,11 +26,11 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,id=s/8b5712a5-156b-4b4e-92e2-38a935c8efb1-/go/pkg/mod,target=/go/pkg/mod go mod download
 
 COPY . .
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,id=s/8b5712a5-156b-4b4e-92e2-38a935c8efb1-/go/pkg/mod,target=/go/pkg/mod \
+    --mount=type=cache,id=s/8b5712a5-156b-4b4e-92e2-38a935c8efb1-/root/.cache/go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w -X github.com/warmbly/warmbly/internal/version.Version=$VERSION -X github.com/warmbly/warmbly/internal/version.Commit=$COMMIT -X github.com/warmbly/warmbly/internal/version.BuiltAt=$BUILT_AT" -o /out/forms ./cmd/forms
 
 # Runtime stage

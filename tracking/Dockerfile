@@ -23,8 +23,8 @@ COPY static ./static
 
 # The binary is copied out of the (cache-mounted) target dir before the mount is
 # released, so the runtime stage can COPY it.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
+RUN --mount=type=cache,id=s/58ee6ab9-3ee2-4cdc-a8fd-f680eeab15c0-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=s/58ee6ab9-3ee2-4cdc-a8fd-f680eeab15c0-/app/target,target=/app/target \
     set -eux; \
     if [ -n "$CARGO_FEATURES" ]; then FEAT="--features $CARGO_FEATURES"; else FEAT=""; fi; \
     cargo build --release $FEAT; \
