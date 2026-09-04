@@ -25,7 +25,7 @@ func TestAutoPauseReason(t *testing.T) {
 		{
 			name: "no eligible mailbox",
 			err:  scheduler.ErrNoEligibleMailbox,
-			want: "Campaign auto-paused: every mailbox is outside its sending window or over its daily budget",
+			want: "Campaign auto-paused: no mailbox can send under its current sending settings (check each mailbox's sending behaviour profile and timezone)",
 		},
 		{
 			name: "generic no accounts",

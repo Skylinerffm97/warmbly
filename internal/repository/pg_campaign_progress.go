@@ -819,12 +819,15 @@ func (r *campaignProgressRepository) CheckContactHasReplied(ctx context.Context,
 	return hasReplied, err
 }
 
-// CountEmailsSentTodayByOrganization returns how many campaign emails were sent today by an organization.
+// CountEmailsSentTodayByOrganization returns how many campaign emails were sent
+// today by an organization. Action and wait steps stamp sent_at too, for
+// routing, but send nothing, so only email steps count.
 func (r *campaignProgressRepository) CountEmailsSentTodayByOrganization(ctx context.Context, organizationID uuid.UUID) (int, error) {
 	query := `
 		SELECT COUNT(*)
 		FROM campaign_contact_progress ccp
 		JOIN campaigns c ON c.id = ccp.campaign_id
+		JOIN sequences s ON s.id = ccp.sequence_id AND s.kind = 'email'
 		WHERE c.organization_id = $1
 		  AND ccp.sent_at IS NOT NULL
 		  AND DATE(ccp.sent_at) = CURRENT_DATE
