@@ -34,10 +34,11 @@ export default function RollingNumber({
     }
 
     return (
-        <span
-            className={className}
-            style={{ display: "inline-flex", alignItems: "flex-end", lineHeight: 1 }}
-        >
+        <span className={className} style={{ display: "inline-flex", alignItems: "flex-end", lineHeight: 1 }}>
+            {/* The wheels each hold every digit 0-9, so assistive tech would
+                read a wall of digits. Expose the real value once instead. */}
+            <span className="sr-only">{text}</span>
+            <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "flex-end", lineHeight: 1 }}>
             <AnimatePresence initial={false} mode="popLayout">
                 {chars.map((ch, i) => {
                     // Position from the right keeps a wheel's identity when the
@@ -60,6 +61,7 @@ export default function RollingNumber({
                     );
                 })}
             </AnimatePresence>
+            </span>
         </span>
     );
 }

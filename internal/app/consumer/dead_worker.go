@@ -219,6 +219,7 @@ func (s *JobsService) detectDeadWorkers(ctx context.Context) {
 			}
 
 			s.notifyWorkerDown(ctx, w.ID, affectedOrgs, true)
+			s.notifyOperatorWorkerDown(ctx, w.ID, reassigned, true)
 		}
 
 		if reassigned == len(accountIDs) {

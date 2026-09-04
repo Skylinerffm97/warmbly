@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/warmbly/warmbly/internal/api/middleware"
@@ -112,7 +115,10 @@ func (h *Handler) AdminTestNotificationChannel(c *gin.Context) {
 	)
 
 	if err := h.OpsNotifier.Deliver(c.Request.Context(), ch, event); err != nil {
-		errx.JSON(c, errx.New(errx.BadRequest, "Delivery failed: "+err.Error()))
+		// Never echo the raw error: a *url.Error embeds the request URL, and
+		// the whole point of redacting targets is that this endpoint does not
+		// hand a webhook URL back out.
+		errx.JSON(c, errx.New(errx.BadRequest, "Delivery failed: "+sanitizeDeliveryError(err, ch.Target)))
 		return
 	}
 
@@ -126,6 +132,28 @@ func (h *Handler) AdminTestNotificationChannel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"delivered": true})
+}
+
+// sanitizeDeliveryError reduces a transport error to something safe to show:
+// the status or cause, with any occurrence of the target stripped out.
+func sanitizeDeliveryError(err error, target string) string {
+	msg := err.Error()
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		// Keep the cause, drop the URL the stdlib prefixes onto it.
+		msg = uerr.Err.Error()
+	}
+	if target != "" {
+		msg = strings.ReplaceAll(msg, target, "the configured target")
+	}
+	// Belt and braces: never let a bare URL through whatever the shape.
+	if i := strings.Index(msg, "http"); i >= 0 {
+		msg = strings.TrimSpace(msg[:i]) + " (endpoint redacted)"
+	}
+	if strings.TrimSpace(msg) == "" {
+		return "the endpoint could not be reached"
+	}
+	return msg
 }
 
 func firstNonBlank(vals ...string) string {

@@ -88,8 +88,9 @@ export default function UpgradeDialog({
             if (e.key !== "Tab") return;
             const card = cardRef.current;
             if (!card) return;
-            // A nested layer (the enterprise inquiry) owns Tab while it is open.
-            if (document.querySelector("[role='alertdialog']")) return;
+            // A nested layer (the enterprise inquiry, the confirm) owns Tab
+            // while it is open.
+            if (document.querySelector("[data-nested-modal], [role='alertdialog']")) return;
             const focusable = card.querySelectorAll<HTMLElement>(
                 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
             );
@@ -118,7 +119,7 @@ export default function UpgradeDialog({
             const others = Array.from(document.querySelectorAll("[data-floating]")).some(
                 (el) => el !== cardRef.current,
             );
-            if (others || document.querySelector("[role='alertdialog']")) return;
+            if (others || document.querySelector("[data-nested-modal], [role='alertdialog']")) return;
             if (busy) return;
             onClose();
         };

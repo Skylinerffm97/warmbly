@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/warmbly/warmbly/internal/app/instancesettings"
 	"github.com/warmbly/warmbly/internal/app/webhook"
 	"github.com/warmbly/warmbly/internal/pkg/safehttp"
@@ -19,6 +21,13 @@ import (
 // deliveryTimeout bounds one outbound call. Chat webhooks answer in
 // milliseconds; anything slower is not worth holding a goroutine for.
 const deliveryTimeout = 8 * time.Second
+
+// maxInFlight bounds concurrent deliveries. Notify is called from request
+// paths that are open to the internet (signup emits user.registered), and each
+// delivery can hold a goroutine for the full timeout against a slow endpoint.
+// A bounded pool means a hostile or dead chat server costs a fixed amount of
+// this process instead of one goroutine per event.
+const maxInFlight = 8
 
 // Settings is the slice of the settings service this package needs.
 type Settings interface {
@@ -58,6 +67,13 @@ type service struct {
 	client   *http.Client
 	// baseURL is the admin panel origin, used to build the Link on events.
 	baseURL string
+	// slots bounds concurrent deliveries; an event that cannot claim one is
+	// dropped rather than queued. Operator alerts are best effort, and a
+	// backlog that outlives the incident is worse than a missed line.
+	slots chan struct{}
+	// dropped counts events shed under load, so the condition is observable
+	// instead of silent.
+	dropped atomic.Uint64
 }
 
 // NewService builds the notifier. A nil settings service disables delivery.
@@ -67,6 +83,7 @@ func NewService(settings Settings, mailer Mailer, baseURL string) Notifier {
 		mailer:   mailer,
 		client:   safehttp.Client(deliveryTimeout),
 		baseURL:  strings.TrimRight(baseURL, "/"),
+		slots:    make(chan struct{}, maxInFlight),
 	}
 }
 
@@ -82,9 +99,22 @@ func (s *service) Notify(event Event) {
 	if s == nil || s.settings == nil {
 		return
 	}
+	// Claim a slot before detaching. Non-blocking: the caller is on a request
+	// path and must never wait on a chat server.
+	select {
+	case s.slots <- struct{}{}:
+	default:
+		if n := s.dropped.Add(1); n == 1 || n%100 == 0 {
+			log.Warn().Uint64("dropped", n).Str("event", event.Key).
+				Msg("operator notification dropped: delivery slots are full")
+		}
+		return
+	}
+
 	// Detached context: the caller's request may finish (or be cancelled)
 	// before a chat server answers, and that must not drop the alert.
 	go func() {
+		defer func() { <-s.slots }()
 		ctx, cancel := context.WithTimeout(context.Background(), deliveryTimeout*2)
 		defer cancel()
 

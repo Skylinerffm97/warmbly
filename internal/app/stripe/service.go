@@ -1191,11 +1191,32 @@ func (s *stripeService) handleInvoicePaymentFailed(ctx context.Context, event *s
 			map[string]string{
 				"Customer": firstNonEmpty(inv.CustomerEmail, inv.Customer),
 				"Invoice":  inv.Number,
-				"Amount":   fmt.Sprintf("%.2f %s", float64(inv.AmountDue)/100, strings.ToUpper(inv.Currency)),
+				"Amount":   formatStripeAmount(inv.AmountDue, inv.Currency),
 			},
 		)
 	}
 	return nil
+}
+
+// zeroDecimalCurrencies have no minor unit, so their amounts are already whole
+// units and must not be divided. https://docs.stripe.com/currencies
+var zeroDecimalCurrencies = map[string]bool{
+	"bif": true, "clp": true, "djf": true, "gnf": true, "jpy": true, "kmf": true,
+	"krw": true, "mga": true, "pyg": true, "rwf": true, "ugx": true, "vnd": true,
+	"vuv": true, "xaf": true, "xof": true, "xpf": true,
+}
+
+// formatStripeAmount renders a Stripe amount for a human, honouring the
+// currency's exponent.
+func formatStripeAmount(amount int64, currency string) string {
+	code := strings.ToLower(strings.TrimSpace(currency))
+	if code == "" {
+		code = "usd"
+	}
+	if zeroDecimalCurrencies[code] {
+		return fmt.Sprintf("%d %s", amount, strings.ToUpper(code))
+	}
+	return fmt.Sprintf("%.2f %s", float64(amount)/100, strings.ToUpper(code))
 }
 
 func firstNonEmpty(vals ...string) string {

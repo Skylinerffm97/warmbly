@@ -73,7 +73,7 @@ export default function PlanCard({
     const below = planOrder(id) < planOrder(current);
     const annual = interval === "annual";
     const base = annual ? plan.priceAnnual : plan.priceMonthly;
-    const disc = discountedPrice(base ?? null, discount);
+    const disc = discountedPrice(base ?? null, discount, interval);
     const shown = disc ?? base;
     const custom = base == null;
     const yearlySaving =
@@ -274,11 +274,15 @@ export default function PlanCard({
                     <div className="h-9 text-[11.5px] text-slate-400 inline-flex items-center justify-center w-full text-center px-2">
                         Does not unlock {feature}
                     </div>
+                ) : below && !canAct ? (
+                    <div className="h-9 text-[11.5px] text-slate-400 inline-flex items-center justify-center w-full">
+                        Owner can change the plan
+                    </div>
                 ) : below ? (
                     <button
                         type="button"
                         onClick={onChoose}
-                        disabled={busy || !canAct}
+                        disabled={busy}
                         className="h-9 w-full rounded-md border border-slate-200 hover:border-slate-300 text-[12.5px] font-medium text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-60"
                     >
                         {pending ? "Working…" : `Downgrade to ${plan.label}`}

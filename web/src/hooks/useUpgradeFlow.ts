@@ -88,6 +88,13 @@ export default function useUpgradeFlow() {
     const upgrade = React.useCallback(
         async (catalogId: PlanID, opts: UpgradeOptions): Promise<UpgradeOutcome> => {
             if (pending) return "failed";
+            // Plans are still loading: resolveServerPlan would return undefined
+            // and the caller would be sent to the billing portal instead of
+            // Stripe Checkout. Refuse rather than take the wrong branch.
+            if (plansQuery.isPending) {
+                toast.error("Still loading plans. Try again in a moment.");
+                return "failed";
+            }
             setPending(catalogId);
             let outcome: UpgradeOutcome = "failed";
             try {
@@ -148,7 +155,7 @@ export default function useUpgradeFlow() {
                 }
             }
         },
-        [pending, access.plan, resolveServerPlan, openPortal, changePlan, checkout],
+        [pending, plansQuery.isPending, access.plan, resolveServerPlan, openPortal, changePlan, checkout],
     );
 
     return {

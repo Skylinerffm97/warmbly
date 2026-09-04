@@ -41,13 +41,48 @@ export default function EnterpriseInquiryDialog({
         setEmail(user.email ?? "");
     }, [open, orgName, user.first_name, user.last_name, user.email]);
 
+    // This opens on top of the upgrade chooser, so it owns Escape and Tab
+    // while it is up: move focus in, keep Tab inside, hand it back on close.
+    // The chooser's own trap defers to any element marked data-nested-modal.
+    const cardRef = React.useRef<HTMLDivElement>(null);
     React.useEffect(() => {
         if (!open) return;
+        const previous = document.activeElement as HTMLElement | null;
+        cardRef.current?.focus();
+
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && !inquiry.isPending) onClose();
+            if (e.key === "Escape") {
+                if (!inquiry.isPending) {
+                    e.stopPropagation();
+                    onClose();
+                }
+                return;
+            }
+            if (e.key !== "Tab") return;
+            const card = cardRef.current;
+            if (!card) return;
+            const focusable = card.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            );
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            const active = document.activeElement;
+            e.stopPropagation();
+            if (e.shiftKey && (active === first || active === card)) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && active === last) {
+                e.preventDefault();
+                first.focus();
+            }
         };
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
+        // Capture phase so this runs before the chooser's document listener.
+        document.addEventListener("keydown", onKey, true);
+        return () => {
+            document.removeEventListener("keydown", onKey, true);
+            previous?.focus?.();
+        };
     }, [open, inquiry.isPending, onClose]);
 
     const valid = company.trim() && name.trim() && /.+@.+\..+/.test(email.trim());
@@ -88,6 +123,9 @@ export default function EnterpriseInquiryDialog({
                         aria-modal="true"
                         aria-labelledby="enterprise-inquiry-title"
                         data-floating
+                        data-nested-modal
+                        ref={cardRef}
+                        tabIndex={-1}
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 8 }}

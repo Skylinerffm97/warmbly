@@ -44,7 +44,7 @@ import PlanCard from "@/components/app/billing/PlanCard";
 import EnterpriseInquiryDialog from "@/components/app/billing/EnterpriseInquiryDialog";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
 import { PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
-import { describeDiscount, fmtMoney, type BillingInterval } from "@/lib/pricing";
+import { describeDiscount, fmtMoney, fromMinorUnits, type BillingInterval } from "@/lib/pricing";
 import OverviewTab from "./OverviewTab";
 import CreditsCard from "./CreditsCard";
 import AIUsageCard from "./AIUsageCard";
@@ -510,11 +510,16 @@ function ProrationNote({ planId, enabled }: { planId?: string; enabled: boolean 
             ) : preview.data ? (
                 <>
                     <div className="text-slate-700 tabular-nums font-medium">
-                        {preview.data.proration_amount > 0
-                            ? `Due today $${fmtMoney(preview.data.proration_amount)}`
-                            : preview.data.proration_amount < 0
-                              ? `Credit $${fmtMoney(Math.abs(preview.data.proration_amount))}`
-                              : "No charge today"}
+                        {(() => {
+                            // Stripe reports this in the currency's minor unit.
+                            const due = fromMinorUnits(
+                                preview.data.proration_amount,
+                                preview.data.currency,
+                            );
+                            if (due > 0) return `Due today $${fmtMoney(due)}`;
+                            if (due < 0) return `Credit $${fmtMoney(Math.abs(due))}`;
+                            return "No charge today";
+                        })()}
                     </div>
                     <div className="text-slate-400">
                         Next bill {fmtDate(preview.data.next_billing_date as unknown as string)}

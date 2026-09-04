@@ -198,6 +198,10 @@ export default function NotificationsPage() {
     const dirty =
         !!settings.data &&
         JSON.stringify(list) !== JSON.stringify(settings.data.notifications?.channels ?? []);
+    // Changing a channel's type clears its target on purpose, so a save with
+    // one still empty would drop the channel server-side. Block it here and
+    // say which one needs attention.
+    const incomplete = list.filter((c) => !c.target.trim());
 
     return (
         <div className="space-y-6">
@@ -213,7 +217,16 @@ export default function NotificationsPage() {
                     <Plus className="h-4 w-4" />
                     Add channel
                 </Button>
-                <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate(list)}>
+                <Button
+                    size="sm"
+                    disabled={!dirty || incomplete.length > 0 || save.isPending}
+                    title={
+                        incomplete.length > 0
+                            ? "Every channel needs a destination before you can save"
+                            : undefined
+                    }
+                    onClick={() => save.mutate(list)}
+                >
                     <Save className="h-4 w-4" />
                     {save.isPending ? "Saving…" : "Save"}
                 </Button>
@@ -330,7 +343,15 @@ export default function NotificationsPage() {
                                                 placeholder={def.placeholder}
                                                 onChange={(e) => update(ch.id, { target: e.target.value })}
                                             />
-                                            <p className="text-xs text-muted-foreground">{def.help}</p>
+                                            {ch.target.trim() ? (
+                                                <p className="text-xs text-muted-foreground">{def.help}</p>
+                                            ) : (
+                                                <p className="text-xs text-destructive">
+                                                    {ch.type === "email"
+                                                        ? "Enter an address before saving."
+                                                        : "Enter the webhook URL for this transport before saving."}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
 

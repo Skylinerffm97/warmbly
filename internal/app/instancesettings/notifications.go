@@ -248,11 +248,25 @@ func mergeChannels(stored, incoming []NotifyChannel) []NotifyChannel {
 	for _, ch := range incoming {
 		prev, existed := byID[ch.ID]
 		if existed {
-			if ch.Target == "" || ch.Target == Masked || ch.Target == prev.Redacted().Target {
+			// Only the redacted form means "unchanged". An empty field is a
+			// deliberate clear: the panel empties the target when the channel
+			// type changes, and restoring the old one there would post Slack
+			// payloads to a Discord webhook. An emptied target fails
+			// validation in Normalize, which is the intended outcome.
+			if ch.Target == Masked || ch.Target == prev.Redacted().Target {
 				ch.Target = prev.Target
 			}
-			if ch.Secret == "" || ch.Secret == Masked {
+			// Same for the signing secret, so it can actually be removed.
+			if ch.Secret == Masked {
 				ch.Secret = prev.Secret
+			}
+			// A type change invalidates a target carried over from the old
+			// transport even when the string was sent back unchanged.
+			if ch.Type != prev.Type {
+				ch.Target = strings.TrimSpace(ch.Target)
+				if ch.Target == Masked || ch.Target == prev.Redacted().Target || ch.Target == prev.Target {
+					ch.Target = ""
+				}
 			}
 		}
 		out = append(out, ch)
