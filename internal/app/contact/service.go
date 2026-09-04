@@ -67,7 +67,7 @@ type ContactService interface {
 
 	// ListTimeline returns a merged, reverse-chronological feed of all
 	// engagement + CRM events for the contact.
-	ListTimeline(ctx context.Context, userID uuid.UUID, orgID *uuid.UUID, contactID uuid.UUID, limit int, before *time.Time) (*models.ContactTimelineResult, *errx.Error)
+	ListTimeline(ctx context.Context, userID uuid.UUID, orgID *uuid.UUID, contactID uuid.UUID, limit int, cursor *models.ContactTimelineKey) (*models.ContactTimelineResult, *errx.Error)
 
 	// SetCampaignWaker wires the campaign service so attaching a lead to a
 	// running campaign wakes that campaign's parked send chain. Optional: with

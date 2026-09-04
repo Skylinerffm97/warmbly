@@ -218,6 +218,6 @@ func (s *contactService) ListSentEmails(ctx context.Context, userID, contactID u
 	return s.contactRepository.ListSentEmails(ctx, userID, contactID, limit, beforeSentAt, beforeTaskID)
 }
 
-func (s *contactService) ListTimeline(ctx context.Context, userID uuid.UUID, orgID *uuid.UUID, contactID uuid.UUID, limit int, before *time.Time) (*models.ContactTimelineResult, *errx.Error) {
-	return s.contactRepository.ListTimeline(ctx, userID, orgID, contactID, limit, before)
+func (s *contactService) ListTimeline(ctx context.Context, userID uuid.UUID, orgID *uuid.UUID, contactID uuid.UUID, limit int, cursor *models.ContactTimelineKey) (*models.ContactTimelineResult, *errx.Error) {
+	return s.contactRepository.ListTimeline(ctx, userID, orgID, contactID, limit, cursor)
 }
