@@ -109,16 +109,15 @@ export default function PlanCard({
             initial={reduced ? false : { opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.38, ease: EASE, delay: 0.12 + index * 0.07 }}
-            whileHover={reduced || !unlocks ? undefined : { y: -3 }}
             className={cn(
                 // `isolate` so the sheen's negative z-index stays above the card
                 // background but below the card's own content.
-                "relative isolate rounded-xl border bg-white p-5 flex flex-col transition-shadow",
+                "relative isolate rounded-xl border bg-white p-5 flex flex-col transition-colors",
                 recommended
                     ? cn("border-transparent ring-2 bg-gradient-to-b to-white", accent.ring, accent.soft)
                     : isCurrent
                       ? "border-slate-900"
-                      : "border-slate-200 hover:shadow-[0_16px_40px_-24px_rgba(15,23,42,0.35)]",
+                      : "border-slate-200 hover:border-slate-300",
                 !unlocks && "opacity-70",
             )}
         >
