@@ -135,5 +135,12 @@ export default interface ContactTimelineEvent {
 
 export interface ContactTimelineResult {
     data: ContactTimelineEvent[];
+    // Mirrors pagination.has_more; kept on the wire for older clients.
     has_more: boolean;
+    pagination: {
+        total: number | null;
+        // Opaque (at, source, id) position; pass back as `cursor`.
+        next_cursor: string | null;
+        has_more: boolean;
+    };
 }

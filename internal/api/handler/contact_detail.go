@@ -11,6 +11,7 @@ import (
 	"github.com/warmbly/warmbly/internal/api/middleware"
 	"github.com/warmbly/warmbly/internal/errx"
 	"github.com/warmbly/warmbly/internal/models"
+	"github.com/warmbly/warmbly/internal/utils/paging"
 )
 
 // GetContact returns the hydrated contact 360 payload. Used by the
@@ -160,18 +161,40 @@ func (h *Handler) ListContactTimeline(c *gin.Context) {
 	}
 
 	limit := 50
-	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 200 {
+	if raw := c.Query("limit"); raw != "" {
+		l, err := strconv.Atoi(raw)
+		if err != nil || l < 1 || l > 200 {
+			errx.Handle(c, errx.New(errx.BadRequest, "limit must be between 1 and 200"))
+			return
+		}
 		limit = l
 	}
 
-	var before *time.Time
-	if v := c.Query("before"); v != "" {
-		if t, perr := time.Parse(time.RFC3339Nano, v); perr == nil {
-			before = &t
+	// The page resumes after an opaque (at, source, id) position. The older
+	// `before` timestamp is still accepted and maps onto the same keyset at
+	// rank zero, which admits exactly the events strictly older than it.
+	var cursor *models.ContactTimelineKey
+	if raw := c.Query("cursor"); raw != "" {
+		at, source, id, xerr := paging.DecodeMergedCursor(raw)
+		if xerr != nil {
+			errx.Handle(c, xerr)
+			return
 		}
+		if !models.ContactTimelineSource(source).Valid() {
+			errx.Handle(c, errx.New(errx.BadRequest, "invalid cursor"))
+			return
+		}
+		cursor = &models.ContactTimelineKey{At: at, Source: models.ContactTimelineSource(source), ID: id}
+	} else if raw := c.Query("before"); raw != "" {
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			errx.Handle(c, errx.New(errx.BadRequest, "before must be an RFC 3339 timestamp"))
+			return
+		}
+		cursor = &models.ContactTimelineKey{At: t}
 	}
 
-	res, xerr := h.ContactService.ListTimeline(c.Request.Context(), userID, orgID, contactID, limit, before)
+	res, xerr := h.ContactService.ListTimeline(c.Request.Context(), userID, orgID, contactID, limit, cursor)
 	if xerr != nil {
 		errx.Handle(c, xerr)
 		return

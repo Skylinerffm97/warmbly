@@ -604,8 +604,8 @@ func (s *campaignService) enqueueCampaignWakeup(ctx context.Context, campaignID 
 		case errors.Is(err, scheduler.ErrNoEligibleMailbox):
 			_ = s.campaignRepository.UpdateStatusWithLock(ctx, campaignID, "paused_no_accounts")
 			return errx.New(errx.BadRequest,
-				"this campaign's mailboxes are all outside their sending window or over their daily limit right now; "+
-					"check each mailbox's timezone, sending behaviour and daily cap")
+				"no mailbox on this campaign can send under its current sending settings; "+
+					"check each mailbox's sending behaviour profile (working days) and timezone")
 		case errors.Is(err, scheduler.ErrNoEmailAccounts):
 			_ = s.campaignRepository.UpdateStatusWithLock(ctx, campaignID, "paused_no_accounts")
 			return errx.New(errx.BadRequest, "no active email accounts found for campaign's email tags")

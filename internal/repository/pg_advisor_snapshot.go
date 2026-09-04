@@ -70,6 +70,7 @@ func (r *advisorRepository) loadMailboxes(ctx context.Context, orgID uuid.UUID) 
 			WHERE t.email_account_id = ea.id
 			  AND t.task_type = 'campaign' AND t.status = 'completed'
 			  AND t.completed_at > NOW() - INTERVAL '30 days'
+			  AND ` + taskDispatchedEmail + `
 		) sent ON true
 		LEFT JOIN LATERAL (
 			SELECT
