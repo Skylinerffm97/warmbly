@@ -1332,6 +1332,11 @@ func main() {
 		if aware, ok := campaignService.(campaign.AttachmentAware); ok {
 			aware.WireAttachments(attachmentRepoForHandler, s3ForHandler)
 		}
+		// Deleting a step cascades its attachment rows away, so the sequence
+		// service needs the same store to drop the objects behind them.
+		if aware, ok := sequenceService.(sequence.AttachmentAware); ok {
+			aware.WireAttachments(attachmentRepoForHandler, s3ForHandler)
+		}
 		// Attaching a lead to a running campaign has to wake that campaign's
 		// parked send chain, or the lead sits queued until the chain's next
 		// tick. Wired here because contactService is built before the scheduler
