@@ -398,15 +398,27 @@ func (r *taskRepository) GetEmailTask(ctx context.Context, taskID uuid.UUID) (*E
 	return emailTask, err
 }
 
-// CountCampaignEmailsSentToday counts only campaign tasks completed today (excludes warmup)
+// taskDispatchedEmail is the WHERE fragment for "this completed task put an
+// email on the wire", for every query that counts or times a mailbox's sends
+// (alias t). Only campaign tasks need it: a campaign is one self-perpetuating
+// task, and its wake-ups complete without sending (a deferral, an auto-pause,
+// an action step), so status alone charged each of them to the mailbox's daily
+// budget and reset its min-gap clock (issue #306). A campaign send is the task
+// holding a step's reservation, or one the worker answered with a Message-ID.
+const taskDispatchedEmail = `(t.task_type <> 'campaign' OR t.message_id <> '' OR EXISTS (
+		SELECT 1 FROM campaign_contact_progress ccp WHERE ccp.dispatch_task_id = t.id))`
+
+// CountCampaignEmailsSentToday counts the campaign emails a mailbox dispatched
+// today (excludes warmup, and the campaign chain's own wake-ups).
 func (r *taskRepository) CountCampaignEmailsSentToday(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `
 		SELECT COUNT(*)
-		FROM tasks
-		WHERE email_account_id = $1
-		  AND status = 'completed'
-		  AND task_type = 'campaign'
-		  AND DATE(completed_at) = CURRENT_DATE
+		FROM tasks t
+		WHERE t.email_account_id = $1
+		  AND t.status = 'completed'
+		  AND t.task_type = 'campaign'
+		  AND DATE(t.completed_at) = CURRENT_DATE
+		  AND ` + taskDispatchedEmail + `
 	`
 
 	var count int
@@ -467,10 +479,11 @@ func (r *taskRepository) CreateEmailTaskFull(ctx context.Context, task *Task, em
 func (r *taskRepository) CountEmailsSentToday(ctx context.Context, accountID uuid.UUID) (int, error) {
 	query := `
 		SELECT COUNT(*)
-		FROM tasks
-		WHERE email_account_id = $1
-		  AND status = 'completed'
-		  AND DATE(completed_at) = CURRENT_DATE
+		FROM tasks t
+		WHERE t.email_account_id = $1
+		  AND t.status = 'completed'
+		  AND DATE(t.completed_at) = CURRENT_DATE
+		  AND ` + taskDispatchedEmail + `
 	`
 
 	var count int
@@ -493,13 +506,15 @@ func (r *taskRepository) CountWarmupEmailsSentToday(ctx context.Context, account
 	return count, err
 }
 
-// GetLastEmailTime gets the last email send time for an account
+// GetLastEmailTime gets the last email send time for an account. It is the
+// min-gap clock, so it reads real sends only.
 func (r *taskRepository) GetLastEmailTime(ctx context.Context, accountID uuid.UUID) (*time.Time, error) {
 	query := `
-		SELECT MAX(completed_at)
-		FROM tasks
-		WHERE email_account_id = $1
-		  AND status = 'completed'
+		SELECT MAX(t.completed_at)
+		FROM tasks t
+		WHERE t.email_account_id = $1
+		  AND t.status = 'completed'
+		  AND ` + taskDispatchedEmail + `
 	`
 
 	var lastTime *time.Time
@@ -528,13 +543,14 @@ func (r *taskRepository) GetLastSendTimes(ctx context.Context, accountIDs []uuid
 	}
 
 	query := `
-		SELECT email_account_id, MAX(completed_at)
-		FROM tasks
-		WHERE email_account_id = ANY($1)
-		  AND status = 'completed'
-		  AND task_type = $2::task_type
-		  AND completed_at IS NOT NULL
-		GROUP BY email_account_id
+		SELECT t.email_account_id, MAX(t.completed_at)
+		FROM tasks t
+		WHERE t.email_account_id = ANY($1)
+		  AND t.status = 'completed'
+		  AND t.task_type = $2::task_type
+		  AND t.completed_at IS NOT NULL
+		  AND ` + taskDispatchedEmail + `
+		GROUP BY t.email_account_id
 	`
 
 	rows, err := r.db.Query(ctx, query, accountIDs, taskType)
