@@ -30,9 +30,23 @@ Only the workspace owner can change the plan. Other members see the same compari
 
 ## Managing your subscription
 
-**Settings > Billing** shows the current plan, usage for the period, the same plan comparison, redeemed promo codes, and links to the Stripe billing portal for payment methods and invoices.
+**Settings > Billing** is owner only and splits into four tabs, each with its own link.
 
-Canceling keeps the plan active until the end of the current period. After that the workspace returns to the free tier and keeps its mailboxes, warmup and settings.
+**Overview** is the control panel for the subscription.
+
+- The plan card shows the plan, its status, the price, and the renewal or end date. Change plan opens the same chooser the locked features use.
+- Cancel plan schedules the cancellation for the end of the paid period. The plan stays fully active until then, and Resume clears it with one click. Nothing is lost either way: the workspace returns to the free tier and keeps its mailboxes, warmup and settings.
+- Usage and limits shows live counts against the limits the server actually enforces, for mailboxes, contacts, campaigns, team members, sends this period, and API calls. A meter turns amber past 70% and red past 90%. A meter with no cap means that limit is unmetered on your plan.
+- What is included lists every capability the plan turns on or leaves locked. A locked row opens the plan chooser.
+- Banners appear only when something needs a decision: a failed payment, a scheduled cancellation, or a trial about to end.
+
+Need a single limit raised without moving plan? Request an increase from **Settings > Limits**, linked from the usage section. An operator reviews it and the approved limit takes effect on the workspace.
+
+**Plans** compares the lineup, applies promo codes, and lists codes this workspace has redeemed. On a paid plan each card also prices the switch before you commit, showing what is due today and when the next bill lands.
+
+**AI and credits** covers the credit balance, top-ups and usage. See [AI credits](/guides/ai-credits/).
+
+**Payment** links out to the Stripe billing portal. Cards and the billing email are held by Stripe and never touch Warmbly, so they are read and changed there. Invoices and PDF receipts live in the portal too.
 
 ## Self-hosted deployments
 

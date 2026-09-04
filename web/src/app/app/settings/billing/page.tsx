@@ -1,5 +1,5 @@
 // Billing — owner-only, organization-scoped, split into tabs so the page is
-// browsable: Overview (plan + usage), Plans (compare/promo), AI & credits,
+// browsable: Overview (plan, usage, controls), Plans (compare/promo), AI & credits,
 // and Payment. Each tab is a real path (/app/settings/billing/ai-credits,
 // /plans, /payment) so tabs are linkable and Stripe returns land on the tab
 // they left from.
@@ -29,21 +29,21 @@ import toast from "react-hot-toast";
 import { TopbarAction } from "@/components/layout/Page";
 import useFeatureAccess from "@/hooks/useFeatureAccess";
 import useUpgradeFlow from "@/hooks/useUpgradeFlow";
-import useSubscription from "@/lib/api/hooks/app/subscription/useSubscription";
+import { useUpgradeDialog } from "@/hooks/context/upgrade";
 import useValidateDiscountCode from "@/lib/api/hooks/app/subscription/useValidateDiscountCode";
 import useAppliedDiscounts from "@/lib/api/hooks/app/subscription/useAppliedDiscounts";
-import useUsageOverview from "@/lib/api/hooks/app/analytics/useUsageOverview";
+import usePreviewPlanChange from "@/lib/api/hooks/app/subscription/usePreviewPlanChange";
 import { useAppStore } from "@/stores";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import type DiscountPreview from "@/lib/api/models/app/subscription/DiscountPreview";
 import type { DiscountRedemption } from "@/lib/api/models/app/subscription/DiscountRedemption";
 import buildError from "@/lib/helper/buildError";
 import { TextInput } from "@/components/ui/field";
-import { AnimatedNumber, DitherMeter, type DitherTone } from "@/components/ui/dither";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
 import { PLAN_ACCENT_CLASSES, PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
 import { describeDiscount, discountedPrice, fmtMoney, type BillingInterval } from "@/lib/pricing";
+import OverviewTab from "./OverviewTab";
 import CreditsCard from "./CreditsCard";
 import AIUsageCard from "./AIUsageCard";
 
@@ -71,15 +71,14 @@ function pathForTab(t: BillingTab): string {
 
 export default function BillingSettingsPage() {
     const access = useFeatureAccess();
-    const sub = useSubscription();
     const currentOrg = useAppStore((s) => s.currentOrganization);
     const validateCode = useValidateDiscountCode();
     // Checkout / plan change / portal live in useUpgradeFlow, shared with the
     // in-app upgrade dialog.
     const flow = useUpgradeFlow();
+    const upgradeDialog = useUpgradeDialog();
     const openPortal = flow.openPortal;
     const redemptions = useAppliedDiscounts();
-    const usage = useUsageOverview().data;
     const { tab: tabSlug } = useParams();
     const navigate = useNavigate();
     const [codeInput, setCodeInput] = React.useState("");
@@ -125,12 +124,6 @@ export default function BillingSettingsPage() {
     }
 
     const currentPlan = getPlan(access.plan);
-    const currentAccent = PLAN_ACCENT_CLASSES[currentPlan.accent];
-    const status = sub.data?.status;
-    const periodEnd = sub.data?.current_period_end
-        ? new Date(sub.data.current_period_end as unknown as string)
-        : null;
-    const cancelAtEnd = sub.data?.cancel_at_period_end;
 
     async function applyCode() {
         const code = codeInput.trim();
@@ -152,6 +145,16 @@ export default function BillingSettingsPage() {
     function clearCode() {
         setApplied(null);
         setCodeInput("");
+    }
+
+    // Overview's "Change plan" opens the same full-screen chooser the locked
+    // surfaces use, so there is one upgrade experience everywhere.
+    function openPlanChooser() {
+        upgradeDialog.open({
+            feature: "Your plan",
+            minPlan: "starter",
+            blurb: "Compare every plan, switch billing interval, and change your subscription in one step.",
+        });
     }
 
     // Upgrade/switch to a plan. A valid promo code rides along to Stripe; the
@@ -214,83 +217,7 @@ export default function BillingSettingsPage() {
                         className="divide-y divide-slate-200/70"
                     >
                         {tab === "overview" && (
-                            <>
-                                <Section
-                                    eyebrow="Current plan"
-                                    description="Your active subscription. Limits below come from the marketing site — same plans, same numbers."
-                                >
-                                    {sub.isPending ? (
-                                        <div className="h-20 rounded bg-slate-100 animate-pulse" />
-                                    ) : (
-                                        <div className="flex flex-wrap items-start gap-4">
-                                            <div className={`size-9 rounded-md flex items-center justify-center shrink-0 border ${currentAccent.pill}`}>
-                                                <SparklesIcon className="w-4 h-4" />
-                                            </div>
-                                            <div className="min-w-0 flex-1 basis-[200px]">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-[15px] font-semibold text-slate-900">
-                                                        {currentPlan.label}
-                                                    </span>
-                                                    <StatusPill status={status} cancelAtEnd={cancelAtEnd} />
-                                                </div>
-                                                <p className="text-[11.5px] text-slate-500 mt-1 leading-relaxed max-w-md">
-                                                    {currentPlan.description}
-                                                </p>
-                                                {periodEnd && status !== "canceled" && (
-                                                    <div className="mt-2 text-[11px] text-slate-500">
-                                                        {cancelAtEnd ? "Ends on " : "Renews on "}
-                                                        <span className="font-mono tabular-nums text-slate-700">
-                                                            {periodEnd.toLocaleDateString("en-US", {
-                                                                month: "long",
-                                                                day: "numeric",
-                                                                year: "numeric",
-                                                            })}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setTab("plans")}
-                                                className="h-7 px-3 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-[12px] font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
-                                            >
-                                                <SparklesIcon className="w-3 h-3" />
-                                                {currentPlan.id === "free" ? "Subscribe" : "Change plan"}
-                                            </button>
-                                        </div>
-                                    )}
-                                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 mt-1 text-[11.5px] max-w-md">
-                                        {currentPlan.bullets.map((b) => (
-                                            <li key={b} className="flex items-start gap-1.5">
-                                                <CheckIcon className="w-3 h-3 text-emerald-600 mt-0.5 shrink-0" />
-                                                <span className="text-slate-700">{b}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </Section>
-
-                                <Section
-                                    eyebrow="Usage"
-                                    description="What this workspace is consuming this period."
-                                >
-                                    <UsageRow label="Mailboxes" current={usage?.email_accounts.total ?? 0} max={"Unlimited"} />
-                                    <UsageRow
-                                        label="Sends this period"
-                                        current={usage?.campaigns.emails_sent ?? 0}
-                                        max={
-                                            currentPlan.sendsPerDay === Number.POSITIVE_INFINITY
-                                                ? "Custom"
-                                                : currentPlan.sendsPerDay
-                                        }
-                                    />
-                                    <UsageRow label="Warmup" current={usage?.email_accounts.in_warmup ?? 0} max={"Unlimited"} />
-                                    <UsageRow
-                                        label="Dedicated IPs"
-                                        current={currentPlan.id === "business" ? 1 : 0}
-                                        max={currentPlan.id === "enterprise" ? "Custom" : currentPlan.id === "business" ? 1 : 0}
-                                    />
-                                </Section>
-                            </>
+                            <OverviewTab onChangePlan={openPlanChooser} />
                         )}
 
                         {tab === "plans" && (
@@ -319,6 +246,8 @@ export default function BillingSettingsPage() {
                                                 discount={applied}
                                                 interval={billingInterval}
                                                 pending={flow.pending === id}
+                                                serverPlanId={flow.resolveServerPlan(id)?.id}
+                                                showProration={currentPlan.id !== "free" && currentPlan.id !== id}
                                                 onUpgrade={() => upgrade(id)}
                                             />
                                         ))}
@@ -437,36 +366,30 @@ export default function BillingSettingsPage() {
                                 >
                                     <Row
                                         label="Payment method"
-                                        description="Card is managed through the billing portal."
+                                        description="Cards are held by Stripe and never touch Warmbly, so they are read and changed in the portal."
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
-                                                <CreditCardIcon className="w-3 h-3" />
-                                                No card on file
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={openPortal}
-                                                className="h-7 px-2.5 rounded-md border border-slate-200 hover:border-slate-300 text-[12px] text-slate-700 hover:text-slate-900 transition-colors"
-                                            >
-                                                Manage
-                                            </button>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={openPortal}
+                                            disabled={flow.portalPending}
+                                            className="h-7 px-2.5 rounded-md border border-slate-200 hover:border-slate-300 text-[12px] text-slate-700 hover:text-slate-900 transition-colors inline-flex items-center gap-1.5 disabled:opacity-60"
+                                        >
+                                            <CreditCardIcon className="w-3 h-3" />
+                                            Manage cards in Stripe
+                                        </button>
                                     </Row>
                                     <Row
                                         label="Billing email"
-                                        description="Where invoices and renewal notices are sent."
+                                        description="Invoices and renewal notices go to the billing email on the Stripe customer."
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[12px] text-slate-500 font-mono">Owner's account email</span>
-                                            <button
-                                                type="button"
-                                                onClick={openPortal}
-                                                className="h-7 px-2.5 rounded-md border border-slate-200 hover:border-slate-300 text-[12px] text-slate-700 hover:text-slate-900 transition-colors"
-                                            >
-                                                Change
-                                            </button>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={openPortal}
+                                            disabled={flow.portalPending}
+                                            className="h-7 px-2.5 rounded-md border border-slate-200 hover:border-slate-300 text-[12px] text-slate-700 hover:text-slate-900 transition-colors disabled:opacity-60"
+                                        >
+                                            Change in Stripe
+                                        </button>
                                     </Row>
                                 </Section>
 
@@ -507,6 +430,8 @@ function PlanCard({
     discount,
     interval,
     pending,
+    serverPlanId,
+    showProration,
     onUpgrade,
 }: {
     id: PlanID;
@@ -515,6 +440,10 @@ function PlanCard({
     interval: BillingInterval;
     /** This plan's checkout / change is in flight. */
     pending?: boolean;
+    /** Server plan id, needed to price a switch. */
+    serverPlanId?: string;
+    /** Only paid workspaces switching to a different plan get prorated. */
+    showProration?: boolean;
     onUpgrade: () => void;
 }) {
     const plan = getPlan(id);
@@ -522,6 +451,9 @@ function PlanCard({
     const annual = interval === "annual";
     const base = annual ? plan.priceAnnual : plan.priceMonthly;
     const disc = discountedPrice(base, discount);
+    // Empty id disables the query, so a free workspace or the current plan
+    // never hits /subscription/preview-change.
+    const preview = usePreviewPlanChange(showProration && serverPlanId ? serverPlanId : "");
 
     return (
         <div
@@ -584,6 +516,28 @@ function PlanCard({
                     </li>
                 ))}
             </ul>
+            {showProration && (
+                <div className="mb-2 rounded border border-slate-200/80 bg-slate-50 px-2 py-1.5 text-[10.5px] leading-snug">
+                    {preview.isPending ? (
+                        <span className="text-slate-400">Pricing this switch…</span>
+                    ) : preview.data ? (
+                        <>
+                            <div className="text-slate-700 tabular-nums">
+                                {preview.data.proration_amount > 0
+                                    ? `Due today: $${fmtMoney(preview.data.proration_amount)}`
+                                    : preview.data.proration_amount < 0
+                                      ? `Credit: $${fmtMoney(Math.abs(preview.data.proration_amount))}`
+                                      : "No charge today"}
+                            </div>
+                            <div className="text-slate-400">
+                                Next bill {fmtDate(preview.data.next_billing_date as unknown as string)}
+                            </div>
+                        </>
+                    ) : (
+                        <span className="text-slate-400">Prorated at switch</span>
+                    )}
+                </div>
+            )}
             <button
                 type="button"
                 onClick={onUpgrade}
@@ -597,85 +551,6 @@ function PlanCard({
                 {pending && <Loader2Icon className="w-3 h-3 animate-spin" />}
                 {active ? "Current plan" : id === "enterprise" ? "Contact sales" : "Switch to " + plan.label}
             </button>
-        </div>
-    );
-}
-
-function StatusPill({
-    status,
-    cancelAtEnd,
-}: {
-    status: string | undefined;
-    cancelAtEnd: boolean | undefined;
-}) {
-    if (!status) {
-        return (
-            <span className="inline-flex items-center text-[10px] rounded px-1.5 h-4 bg-slate-100 text-slate-500 uppercase tracking-[0.1em] font-medium">
-                Free
-            </span>
-        );
-    }
-    if (status === "trialing") {
-        return (
-            <span className="inline-flex items-center text-[10px] rounded px-1.5 h-4 bg-emerald-50 text-emerald-700 uppercase tracking-[0.1em] font-medium border border-emerald-100">
-                Trialing
-            </span>
-        );
-    }
-    if (status === "past_due") {
-        return (
-            <span className="inline-flex items-center text-[10px] rounded px-1.5 h-4 bg-red-50 text-red-700 uppercase tracking-[0.1em] font-medium border border-red-100">
-                Past due
-            </span>
-        );
-    }
-    if (status === "canceled") {
-        return (
-            <span className="inline-flex items-center text-[10px] rounded px-1.5 h-4 bg-slate-100 text-slate-500 uppercase tracking-[0.1em] font-medium">
-                Canceled
-            </span>
-        );
-    }
-    if (cancelAtEnd) {
-        return (
-            <span className="inline-flex items-center gap-1 text-[10px] rounded px-1.5 h-4 bg-amber-50 text-amber-700 uppercase tracking-[0.1em] font-medium border border-amber-100">
-                <CheckIcon className="w-2 h-2" />
-                Ending soon
-            </span>
-        );
-    }
-    return (
-        <span className="inline-flex items-center gap-1 text-[10px] rounded px-1.5 h-4 bg-emerald-50 text-emerald-700 uppercase tracking-[0.1em] font-medium border border-emerald-100">
-            <CheckIcon className="w-2 h-2" />
-            Active
-        </span>
-    );
-}
-
-function UsageRow({
-    label,
-    current,
-    max,
-}: {
-    label: string;
-    current: number;
-    max: number | string;
-}) {
-    const pct =
-        typeof max === "number" && max > 0
-            ? Math.min(100, Math.round((current / max) * 100))
-            : 0;
-    const tone: DitherTone = pct >= 90 ? "rose" : pct >= 70 ? "amber" : "slate";
-    return (
-        <div>
-            <div className="flex items-center justify-between text-[11px] mb-1">
-                <span className="text-slate-500">{label}</span>
-                <span className="font-mono tabular-nums text-slate-700">
-                    <AnimatedNumber value={current} />
-                    <span className="text-slate-400"> / {typeof max === "number" ? max.toLocaleString() : max}</span>
-                </span>
-            </div>
-            <DitherMeter frac={pct / 100} tone={tone} height={4} />
         </div>
     );
 }
