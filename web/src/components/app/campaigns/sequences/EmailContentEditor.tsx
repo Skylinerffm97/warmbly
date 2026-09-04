@@ -73,6 +73,12 @@ export default function EmailContentEditor({
     const [previewContact, setPreviewContact] = React.useState<Contact | null>(null);
     const [previewMailbox, setPreviewMailbox] = React.useState<Inbox | null>(null);
     const senders = useCampaignSenderInboxes(campaignId ?? "");
+    // Both picks belong to one campaign, so drop them when this editor is
+    // pointed at a different one, or at none, without remounting.
+    React.useEffect(() => {
+        setPreviewContact(null);
+        setPreviewMailbox(null);
+    }, [campaignId]);
     React.useEffect(() => {
         if (!campaignId) return;
         if (previewMailbox && senders.inboxes.some((i) => i.id === previewMailbox.id)) return;
@@ -92,9 +98,9 @@ export default function EmailContentEditor({
                 subject,
                 body_html: bodyHtml,
                 body_plain: htmlToPlain(bodyHtml),
-                ...(previewContact ? { contact_id: previewContact.id } : {}),
+                ...(campaignId && previewContact ? { contact_id: previewContact.id } : {}),
                 ...(campaignId ? { campaign_id: campaignId } : {}),
-                ...(previewMailbox ? { account_id: previewMailbox.id } : {}),
+                ...(campaignId && previewMailbox ? { account_id: previewMailbox.id } : {}),
             })
                 .then((p) => {
                     if (active) setServerPreview(p);
