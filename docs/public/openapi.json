@@ -6793,7 +6793,7 @@
         ],
         "operationId": "contacts_timeline_list",
         "summary": "List a contact's timeline",
-        "description": "Merged activity feed: sends, opens, clicks, replies, bounces, deliverability/suppression events, notes, and meeting bookings. Requires a selected organization. Paginate via the `before` timestamp. Scope `READ_CONTACTS`.",
+        "description": "Merged activity feed: sends, opens, clicks, replies, bounces, deliverability/suppression events, notes, meeting bookings, lifecycle events, and website page views. Requires a selected organization. Paginate with the opaque `cursor` from `pagination.next_cursor`; the cursor carries the exact position of the last event (time, source, row), so events that share a timestamp are never skipped or repeated. Scope `READ_CONTACTS`.",
         "security": [
           {
             "bearerAuth": []
@@ -6822,10 +6822,20 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque pagination cursor from `pagination.next_cursor`. A malformed cursor is a 400.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "before",
             "in": "query",
             "required": false,
-            "description": "The `at` timestamp of the oldest event from the previous page (RFC 3339 nano).",
+            "deprecated": true,
+            "description": "Deprecated: use `cursor`. Returns the events strictly older than this timestamp (RFC 3339 nano), which can skip events that share an instant with the page boundary. Ignored when `cursor` is set.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -6834,7 +6844,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Timeline events with a has_more flag.",
+            "description": "A page of timeline events with the pagination envelope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6844,7 +6854,7 @@
             }
           },
           "400": {
-            "description": "Invalid contact ID, or no organization selected.",
+            "description": "Invalid contact ID, limit or cursor, or no organization selected.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22387,10 +22397,11 @@
       },
       "ContactTimelineResult": {
         "type": "object",
-        "description": "A page of timeline events. Paginate via has_more and the `before` query param; this list does not use a cursor envelope.",
+        "description": "A page of timeline events. Paginate with pagination.next_cursor as the `cursor` query param. has_more mirrors pagination.has_more and is kept for older clients.",
         "required": [
           "data",
-          "has_more"
+          "has_more",
+          "pagination"
         ],
         "properties": {
           "data": {
@@ -22401,6 +22412,9 @@
           },
           "has_more": {
             "type": "boolean"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
           }
         }
       },
