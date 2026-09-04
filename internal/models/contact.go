@@ -440,6 +440,14 @@ const (
 	TimelineSourcePageHit        ContactTimelineSource = 14 // website_page_hits
 )
 
+// Valid reports whether s names a source the timeline is merged from. A
+// cursor carrying any other rank is malformed: zero is reserved for the
+// legacy bare-timestamp bound and anything above the last source would
+// re-admit the events at the cursor's instant.
+func (s ContactTimelineSource) Valid() bool {
+	return s >= TimelineSourceProgressSent && s <= TimelineSourcePageHit
+}
+
 // ContactTimelineKey is one event's position in the merged feed. A page
 // resumes strictly after the key of the last event it returned, comparing
 // (At, Source, ID) as a tuple, which is what the opaque cursor carries.

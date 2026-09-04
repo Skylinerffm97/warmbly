@@ -180,6 +180,10 @@ func (h *Handler) ListContactTimeline(c *gin.Context) {
 			errx.Handle(c, xerr)
 			return
 		}
+		if !models.ContactTimelineSource(source).Valid() {
+			errx.Handle(c, errx.New(errx.BadRequest, "invalid cursor"))
+			return
+		}
 		cursor = &models.ContactTimelineKey{At: at, Source: models.ContactTimelineSource(source), ID: id}
 	} else if raw := c.Query("before"); raw != "" {
 		t, err := time.Parse(time.RFC3339Nano, raw)
