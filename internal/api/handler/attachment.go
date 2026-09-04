@@ -88,6 +88,10 @@ func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
 		return
 	}
 
+	// Cap the body before anything reads it, so a huge upload can't pin a
+	// worker: the first form field read parses the whole multipart body.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, attachmentMaxBytes+(1<<20))
+
 	// Optional step_id scopes the attachment to one step; without it the file
 	// rides every step of the campaign. A malformed or foreign step is refused
 	// rather than silently widened to the whole campaign.
@@ -110,8 +114,6 @@ func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
 		seqID = &id
 	}
 
-	// Cap the body before parsing so a huge upload can't pin a worker.
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, attachmentMaxBytes+(1<<20))
 	fh, err := c.FormFile("file")
 	if err != nil {
 		errx.JSON(c, errx.New(errx.BadRequest, "file is required"))
