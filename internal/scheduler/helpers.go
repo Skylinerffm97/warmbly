@@ -132,6 +132,18 @@ func ensureBusinessHours(t time.Time, timezone string) time.Time {
 	return ensureTimeWindow(t, "08:00", "20:00", loc)
 }
 
+// businessHoursReopen is when the 8am-8pm band next opens for an instant
+// that sits outside it: 8am the same local day before the band, 8am the next
+// local day after it.
+func businessHoursReopen(t time.Time, loc *time.Location) time.Time {
+	local := t.In(loc)
+	open := time.Date(local.Year(), local.Month(), local.Day(), 8, 0, 0, 0, loc)
+	if local.Hour() >= 20 {
+		open = open.AddDate(0, 0, 1)
+	}
+	return open
+}
+
 // calculateHoursRemainingUntil calculates hours remaining until a specific end time
 func calculateHoursRemainingUntil(timezone, endTime string) float64 {
 	loc := loadLocation(timezone)
