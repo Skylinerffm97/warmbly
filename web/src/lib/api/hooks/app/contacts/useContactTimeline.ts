@@ -18,17 +18,13 @@ export default function useContactTimeline(contactId: string, enabled = true) {
         queryFn: ({ pageParam }) =>
             listContactTimeline(contactId, {
                 limit: PAGE_LIMIT,
-                before: pageParam,
+                cursor: pageParam,
             }),
         initialPageParam: undefined,
-        getNextPageParam: (lastPage) => {
-            if (!lastPage.has_more) return undefined;
-            const items = lastPage.data ?? [];
-            if (items.length === 0) return undefined;
-            // Cursor = the oldest item we have so far; backend returns
-            // newest-first so the tail of the last page is the cursor.
-            return items[items.length - 1]?.at;
-        },
+        // The backend hands back an opaque cursor for the position after the
+        // last event on the page; a bare timestamp could not tell apart
+        // events that share an instant, so it is never derived client-side.
+        getNextPageParam: (lastPage) => lastPage.pagination?.next_cursor ?? undefined,
         enabled: enabled && !!contactId,
         staleTime: 15_000,
     });
