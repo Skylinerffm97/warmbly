@@ -38,7 +38,7 @@ Indicators are workspace-scoped. Teammates see only your name, avatar, current p
 
 A dot in the header reports the live connection: green **Live** when it is healthy, amber **Slow connection** or red **Poor connection** when heartbeats are taking longer than they should, amber **Reconnecting...** while it retries, and red **Disconnected** when it is down. The reading comes from the measured round trip to the realtime service, so amber means your connection genuinely is slow rather than merely busy.
 
-Nothing is lost while it is down. Warmbly refreshes what it can on a slower cycle so counts and lists still move, and on reconnect it refetches everything that could have drifted, since live events are not replayed after the fact. On a self-hosted install a permanently disconnected dot usually means the realtime service is not running; see [troubleshooting](/development/troubleshooting/).
+Stored data still catches up while it is down. Warmbly refreshes counts and lists on a slower cycle, and on reconnect it refetches everything that could have drifted. The events themselves are never replayed, so live-only signals such as presence and cursors resume from wherever things stand rather than backfilling what you missed. On a self-hosted install a permanently disconnected dot usually means the realtime service is not running; see [troubleshooting](/development/troubleshooting/).
 
 ## Live cursors and chat
 
