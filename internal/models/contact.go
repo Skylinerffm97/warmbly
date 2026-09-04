@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"time"
 
 	"github.com/google/uuid"
@@ -414,12 +415,65 @@ const (
 	TimelinePageHit ContactTimelineEventType = "page_hit"
 )
 
+// ContactTimelineSource ranks the tables the timeline is merged from. It is
+// the middle key of the feed's order (at, source, id): two events at the same
+// instant sort by source, then by that source's row id, so a page boundary
+// can never split a tie. The values are part of the cursor; never renumber.
+type ContactTimelineSource int
+
+const (
+	// campaign_contact_progress stamps, keyed by the step (sequence) id.
+	TimelineSourceProgressSent    ContactTimelineSource = 1
+	TimelineSourceProgressOpened  ContactTimelineSource = 2
+	TimelineSourceProgressClicked ContactTimelineSource = 3
+	TimelineSourceProgressReplied ContactTimelineSource = 4
+	TimelineSourceProgressBounced ContactTimelineSource = 5
+
+	TimelineSourceLinkClick      ContactTimelineSource = 6  // email_link_clicks
+	TimelineSourceOpen           ContactTimelineSource = 7  // email_opens
+	TimelineSourceReplyIntent    ContactTimelineSource = 8  // reply_intents
+	TimelineSourceDeliverability ContactTimelineSource = 9  // deliverability_events
+	TimelineSourceSuppression    ContactTimelineSource = 10 // suppressed_recipients
+	TimelineSourceNote           ContactTimelineSource = 11 // contact_notes
+	TimelineSourceMeeting        ContactTimelineSource = 12 // meeting_bookings
+	TimelineSourceActivity       ContactTimelineSource = 13 // contact_activities
+	TimelineSourcePageHit        ContactTimelineSource = 14 // website_page_hits
+)
+
+// ContactTimelineKey is one event's position in the merged feed. A page
+// resumes strictly after the key of the last event it returned, comparing
+// (At, Source, ID) as a tuple, which is what the opaque cursor carries.
+type ContactTimelineKey struct {
+	At     time.Time
+	Source ContactTimelineSource
+	ID     uuid.UUID
+}
+
+// Before reports whether k sorts after o in the feed's newest-first order,
+// which is to say it is the older position: a smaller time, or the same time
+// and a lower source rank, or the same time and source and a lower id (uuid
+// order is the byte order Postgres uses, so Go and SQL agree).
+func (k ContactTimelineKey) Before(o ContactTimelineKey) bool {
+	if !k.At.Equal(o.At) {
+		return k.At.Before(o.At)
+	}
+	if k.Source != o.Source {
+		return k.Source < o.Source
+	}
+	return bytes.Compare(k.ID[:], o.ID[:]) < 0
+}
+
 // ContactTimelineEvent is one entry in the merged activity feed. The
 // optional fields are tagged with omitempty so the JSON stays compact
 // for event types that don't carry that data.
 type ContactTimelineEvent struct {
 	Type ContactTimelineEventType `json:"type"`
 	At   time.Time                `json:"at"`
+
+	// Position in the feed, used for the merged sort and the next-page
+	// cursor. Not part of the wire shape: the row ids are not unique across
+	// sources, so a client gets an opaque cursor instead.
+	Key ContactTimelineKey `json:"-"`
 
 	// Mailbox sender (email_sent / opened / clicked / replied / bounced).
 	EmailAccountID    *uuid.UUID `json:"email_account_id,omitempty"`
@@ -520,9 +574,12 @@ func (o EngagementOrigin) Empty() bool {
 
 type ContactTimelineResult struct {
 	Data []ContactTimelineEvent `json:"data"`
-	// True if we hit the per-call cap and the caller should paginate
-	// via the `before` query param.
+	// Deprecated: read pagination.has_more. Kept for clients written against
+	// the bare-timestamp pagination that predated the cursor envelope.
 	HasMore bool `json:"has_more"`
+	// NextCursor is an opaque (at, source, id) position; pass it back as
+	// `cursor` for the next page. Total is never counted across the sources.
+	Pagination Pagination `json:"pagination"`
 }
 
 type UpdateContact struct {
