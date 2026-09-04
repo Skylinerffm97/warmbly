@@ -28,6 +28,8 @@ The Preview tab renders through the real send engine, so merge fields, condition
 Apply a saved template to a step, or save a step as a reusable one from the composer. Templates carry their subject and body and live in your shared library.
 </Callout>
 
+Upload attachments for each step below its composer by dragging and dropping files or clicking the upload area. They are included with every email sent by that step and can be removed there. Campaign-level attachments without a `step_id`, which can only be added through the API, do not appear in the step composer.
+
 ### Action steps
 
 A step can perform an action instead of sending: add or remove a tag, label email, create a task, create a deal or move its stage, unsubscribe the contact, notify (fires your webhooks and integrations), run an automation, or switch. They connect like email steps and work best at the end of a reply branch, for example creating a deal and notifying your team on a positive reply.
