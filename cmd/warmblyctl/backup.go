@@ -284,6 +284,16 @@ func runRestore(ctx context.Context, args []string) error {
 		fmt.Println()
 	}
 
+	// Checked before anything is dropped: the restore empties the schema first,
+	// so finding out afterwards that the bundle is truncated leaves the target
+	// with neither its own data nor the bundle's.
+	if m.DatabaseSHA != "" {
+		if err := verifyDump(*file, m.DatabaseSHA); err != nil {
+			return err
+		}
+		fmt.Println("  bundle      intact")
+	}
+
 	fmt.Println("Restoring the database...")
 	if err := restoreDatabase(ctx, dsn, *file); err != nil {
 		return err
@@ -408,6 +418,35 @@ func dumpDatabase(ctx context.Context, dsn string) (string, int64, string, error
 		return "", 0, "", cerr
 	}
 	return path, size, hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+// verifyDump reads the bundle's dump once and compares its digest with the one
+// the manifest recorded, so a bundle truncated by a failed copy is refused
+// rather than half-applied.
+func verifyDump(bundle, want string) error {
+	sql, closeFn, err := openBundleEntry(bundle, databasePath)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
+
+	sum := sha256.New()
+	if _, cerr := io.Copy(sum, sql); cerr != nil {
+		return fmt.Errorf("reading the bundle's database dump: %w", cerr)
+	}
+	got := hex.EncodeToString(sum.Sum(nil))
+	if got != want {
+		return fmt.Errorf("this bundle is damaged: its database dump hashes to %s and the manifest says %s.\nNothing was changed. Copy the bundle again from wherever it came from.", short(got), short(want))
+	}
+	return nil
+}
+
+// short trims a digest to something a person can compare by eye.
+func short(sum string) string {
+	if len(sum) > 12 {
+		return sum[:12]
+	}
+	return sum
 }
 
 // restoreDatabase empties the schema and replays the dump into it. The schema
