@@ -110,7 +110,7 @@ func TestRevokedGrantIsAnAuthenticationErrorOnEveryCallPath(t *testing.T) {
 
 	t.Run("send", func(t *testing.T) {
 		c, _ := tokenRefusal(t, http.StatusBadRequest, invalidGrantBody)
-		_, err := c.SendMessage(ctx, []string{"partner@example.com"}, nil, nil,
+		_, err := c.SendMessage(ctx, "", []string{"partner@example.com"}, nil, nil,
 			"<minted@outlook.com>", "subject", "body", "", nil, nil, nil)
 		if got := mailErrorOf(t, err).Code; got != errx.MailErrorCodeAuthenticationFailed {
 			t.Errorf("code = %s, want %s", got, errx.MailErrorCodeAuthenticationFailed)
