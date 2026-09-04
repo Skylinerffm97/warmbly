@@ -33,6 +33,7 @@ import (
 // customHeaders is variadic to mirror goog.Client.SendMessage.
 func (c *Client) SendMessage(
 	ctx context.Context,
+	fromName string,
 	to, cc, bcc []string,
 	messageID,
 	subject, bodyPlain, bodyHTML string,
@@ -40,7 +41,7 @@ func (c *Client) SendMessage(
 	attachments []Attachment,
 	customHeaders ...map[string]string,
 ) (string, error) {
-	raw, err := buildMIME(sendHeaders(c.GetAddress(), to, cc, bcc, "", subject, parent, customHeaders...), bodyPlain, bodyHTML, attachments)
+	raw, err := buildMIME(sendHeaders(c.FromAddress(fromName), to, cc, bcc, "", subject, parent, customHeaders...), bodyPlain, bodyHTML, attachments)
 	if err != nil {
 		return "", fmt.Errorf("build mime: %w", err)
 	}
@@ -51,7 +52,7 @@ func (c *Client) SendMessage(
 		// single-shot path with our own Message-ID. The send still lands; only
 		// the id we learn is lost.
 		log.Warn().Err(err).Str("email", c.Email).Msg("graph draft creation failed; sending without a readable message id")
-		fallback, berr := buildMIME(sendHeaders(c.GetAddress(), to, cc, bcc, messageID, subject, parent, customHeaders...), bodyPlain, bodyHTML, attachments)
+		fallback, berr := buildMIME(sendHeaders(c.FromAddress(fromName), to, cc, bcc, messageID, subject, parent, customHeaders...), bodyPlain, bodyHTML, attachments)
 		if berr != nil {
 			return "", fmt.Errorf("build mime: %w", berr)
 		}

@@ -332,6 +332,8 @@ function VariantEditor({
                 onBodyChange={(html) => setBodyHtml(html)}
                 subjectPlaceholder="Leave blank to reuse the step's subject"
                 bodyPlaceholder="Leave blank to reuse the step's body"
+                campaignId={campaignId}
+                stepId={variant.step_id ?? undefined}
             />
         </div>
     );

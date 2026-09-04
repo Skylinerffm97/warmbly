@@ -49,8 +49,10 @@ type TasksService interface {
 	HandleEmailTask(task *proto.ProcessTask) *errx.Error
 	HandleUserEmailTask(task *proto.ProcessTask) *errx.Error
 
-	// Test email support
-	SendTestEmail(ctx context.Context, userID string, accountID uuid.UUID, recipient string, campaign *models.Campaign, sequence *models.Sequence) *errx.Error
+	// Test email and preview support. Both are org-scoped: the mailbox has to
+	// belong to orgID, and the contact (optional) is resolved by the caller.
+	SendTestEmail(ctx context.Context, orgID uuid.UUID, accountID uuid.UUID, recipient string, campaign *models.Campaign, sequence *models.Sequence, contact *models.Contact) *errx.Error
+	PreviewEmail(ctx context.Context, orgID uuid.UUID, in EmailPreviewInput) *EmailPreview
 	GetCampaignSequences(ctx context.Context, campaignID uuid.UUID) ([]models.Sequence, error)
 
 	// Warmup scheduling lifecycle

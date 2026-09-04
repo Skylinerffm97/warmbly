@@ -171,6 +171,7 @@ Create a campaign. Only `name` is required, every other field is optional and ap
 | `days` | integer (0-127) | no | Legacy weekday bitmask (superseded by `schedule_windows`). |
 | `start_time` | string | no | Legacy daily start (`HH:MM`). |
 | `end_time` | string | no | Legacy daily end (`HH:MM`). |
+| `schedule_windows` | array | no | Per-day sending windows, 7 arrays indexed by weekday (Sunday = 0) of `{start, end}` minute-of-day intervals. When non-empty it supersedes `days`, `start_time` and `end_time`. |
 | `email_tag_ids` | string[] | no | Mailbox tag ids that resolve the sender pool (tags strategy). |
 | `folder_ids` | string[] | no | Folder ids to file the campaign under. |
 | `sender_strategy` | string | no | `tags` (default) or `explicit`. |
@@ -563,7 +564,7 @@ An `ABWinnerAnalysis` object.
 
 `GET /campaigns/:id/attachments`
 
-List the campaign's attachments. Each entry carries a short-lived presigned download `url`. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`.
+List every attachment of the campaign. Each entry carries a short-lived presigned download `url` and its `step_id`: a file scoped to a step is sent by that step alone, and a `null` `step_id` means every step of the campaign sends it. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
@@ -594,13 +595,13 @@ A `data` array of attachment objects (no pagination wrapper).
 
 `POST /campaigns/:id/attachments`
 
-Upload a file to attach to the campaign (or one step). Sent as `multipart/form-data`, not JSON. **Scope** `WRITE_CAMPAIGNS` · **Org permission** `manage_campaigns`.
+Upload a file to attach to the campaign, or to one of its steps. Sent as `multipart/form-data`, not JSON. **Scope** `WRITE_CAMPAIGNS` · **Org permission** `manage_campaigns`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
 | `id` | path | uuid | Campaign id. |
 | `file` | form (multipart) | file | Required. The file to upload (max 15 MB). Executable and script types are rejected. |
-| `step_id` | form (multipart) | uuid | Optional. Scope the attachment to one sequence step. |
+| `step_id` | form (multipart) | uuid | Optional. Scope the attachment to one sequence step of this campaign, which is then the only step that sends it. Omit it to attach the file to every step. A step of another campaign returns `404`. |
 
 ### Response
 
@@ -660,7 +661,9 @@ A `PreflightReport` object.
 
 `POST /campaigns/:id/test-email`
 
-Send a one-off preview of a sequence step to a chosen recipient through a chosen mailbox. Defaults to the first step when `step_id` is omitted. **Scope** `SEND_CAMPAIGNS` · **Org permission** `send_campaigns`.
+Send a one-off test of a sequence step to a chosen recipient through a chosen mailbox. The message is assembled the way a real send is: merge fields and spintax resolve for the contact, the files that step sends are attached (the campaign's unscoped attachments plus that step's own), the mailbox signature and the campaign's opt-out footer are appended, and a plain-text campaign ships without an HTML part. The subject is prefixed with `[TEST]`. Opens and clicks on a test are never tracked, and its opt-out link names no contact, so clicking it suppresses nobody. Defaults to the first step when `step_id` is omitted. **Scope** `SEND_CAMPAIGNS` · **Org permission** `send_campaigns`.
+
+The mailbox may be any mailbox of the organization, not only one the caller connected, and it does not have to be in the campaign's sender pool. An API key with an `allowed_email_accounts` list can only test from those mailboxes. Passing `contact_id` additionally requires `READ_CONTACTS` (org permission `view_contacts`), since the rendered copy reads that contact's fields.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
@@ -673,25 +676,39 @@ Send a one-off preview of a sequence step to a chosen recipient through a chosen
 | `account_id` | uuid | yes | Sending mailbox id. |
 | `recipient` | string (email) | yes | Where to send the test. |
 | `step_id` | uuid | no | Step to render and send, defaults to the first step. |
+| `contact_id` | uuid | no | Contact of the organization to render the copy for, including its custom fields. Omitted renders for a placeholder contact (`Test Recipient` at `Test Company`, with the recipient's address and no custom fields). |
 
 ```json
 {
   "account_id": "5c7d...",
   "recipient": "me@example.com",
-  "step_id": "7e3b..."
+  "step_id": "7e3b...",
+  "contact_id": "9a2c..."
 }
 ```
 
 ### Response
 
+`contact_id` is present only when one was given.
+
 ```json
 {
   "message": "test email sent",
   "recipient": "me@example.com",
-  "subject": "Quick question, Alex",
-  "account_id": "5c7d..."
+  "subject": "Quick question, {{.FirstName}}",
+  "account_id": "5c7d...",
+  "step_id": "7e3b...",
+  "contact_id": "9a2c..."
 }
 ```
+
+### Errors
+
+| Status | Code | When |
+| --- | --- | --- |
+| `404` | `not_found` | The campaign, step, mailbox or contact does not belong to the caller's organization. |
+| `403` | `forbidden` | `contact_id` given without contact read permission, or `account_id` outside the API key's allowed mailboxes. |
+| `400` | `bad_request` | The campaign has no steps. |
 
 ## Start a campaign
 
@@ -1041,7 +1058,7 @@ Delete a sequence step. **Scope** `WRITE_CAMPAIGNS` · **Org permission** `manag
 
 `POST /campaign-template-preview`
 
-Render subject and body templates against a sample (or supplied) contact exactly as the send path would, and report parse errors plus any unresolved `{{...}}` tokens. No side effects, no campaign id. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`.
+Render subject and body templates for a contact exactly as the send path would, and report parse errors plus any unresolved `{{...}}` tokens. With `campaign_id` and `account_id` the preview also goes through the rest of the send assembly: the plain-text rule, the mailbox signature and the campaign's opt-out footer are applied in send order, and the response names the sender and lists the attachments the send carries. Tracking pixels and link rewriting are left out. No side effects. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`. Passing `contact_id` additionally requires `READ_CONTACTS` (org permission `view_contacts`), and an API key with an `allowed_email_accounts` list can only name those mailboxes in `account_id`.
 
 ### Request body
 
@@ -1050,28 +1067,45 @@ Render subject and body templates against a sample (or supplied) contact exactly
 | `subject` | string | no | Subject template. |
 | `body_html` | string | no | HTML body template. |
 | `body_plain` | string | no | Plain-text body template. |
-| `contact` | object | no | Override fields on the built-in sample contact: `first_name`, `last_name`, `email`, `company`, `phone`, and a `custom_fields` map of string to string. |
+| `contact_id` | uuid | no | A contact of the organization to render for, with its custom fields. Omitted uses the built-in sample contact. |
+| `contact` | object | no | Override fields on the contact being rendered for (the sample or the one from `contact_id`): `first_name`, `last_name`, `email`, `company`, `phone`, and a `custom_fields` map of string to string. |
+| `campaign_id` | uuid | no | Campaign of the organization whose opt-out footer, plain-text setting and attachments apply. The opt-out link in the preview names no contact. |
+| `step_id` | uuid | no | The step being previewed, so `attachments` lists what that step sends. Without it only the campaign-wide files are listed. |
+| `account_id` | uuid | no | Mailbox of the organization whose signature is appended (when signature sync is on) and which is reported as `from`. |
 
 ```json
 {
   "subject": "Hi {{first_name}} at {{company}}",
-  "body_plain": "Hey {{first_name}}, I saw {{company}} is hiring. {{unknown_token}}",
-  "contact": { "first_name": "Sam", "company": "Globex" }
+  "body_html": "<p>Hey {{first_name}}, I saw {{company}} is hiring. {{unknown_token}}</p>",
+  "contact_id": "9a2c...",
+  "campaign_id": "8f1d...",
+  "account_id": "5c7d..."
 }
 ```
 
 ### Response
 
-A `TemplatePreview` object. `errors` lists template parse errors that would block sending, `unresolved` lists literal tokens left after render. Both are omitted when empty.
+A `TemplatePreview` object. `errors` lists template parse errors that would block sending, `unresolved` lists literal tokens left after render. `from` is present when `account_id` was given, `attachments` when `campaign_id` was given and there are files on the send (the campaign-wide ones plus `step_id`'s own). All four are omitted when empty.
 
 ```json
 {
   "subject": "Hi Sam at Globex",
-  "body_html": "",
-  "body_plain": "Hey Sam, I saw Globex is hiring. {{unknown_token}}",
-  "unresolved": ["{{unknown_token}}"]
+  "body_html": "<p>Hey Sam, I saw Globex is hiring. {{unknown_token}}</p><br><br><p>Best, Ana</p><p style=\"font-size:12px;color:#64748b\">Don't want these emails? <a href=\"https://app.example.com/u/...\">Unsubscribe</a></p>",
+  "body_plain": "Hey Sam, I saw Globex is hiring. {{unknown_token}}\n\nBest, Ana\n\nDon't want these emails? https://app.example.com/u/...",
+  "unresolved": ["{{unknown_token}}"],
+  "from": { "name": "Ana Silva", "email": "ana@globex.com" },
+  "attachments": [
+    { "id": "3b0e...", "filename": "deck.pdf", "size": 482113, "mime_type": "application/pdf" }
+  ]
 }
 ```
+
+### Errors
+
+| Status | Code | When |
+| --- | --- | --- |
+| `404` | `not_found` | `contact_id`, `campaign_id` or `account_id` does not belong to the caller's organization. |
+| `403` | `forbidden` | `contact_id` given without contact read permission, or `account_id` outside the API key's allowed mailboxes. |
 
 ## Generate copy with the writing assistant
 

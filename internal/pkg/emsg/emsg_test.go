@@ -103,3 +103,32 @@ func TestEmailBlob_NoAttachments(t *testing.T) {
 		t.Errorf("expected no attachments, got %d", len(got.Attachments))
 	}
 }
+
+// The from-name section is trailing and flagged, so a blob written without it
+// decodes as before and one written with it round-trips alongside attachments.
+func TestEmailBlob_FromName(t *testing.T) {
+	out := roundTrip(t, &EmailBlob{
+		PlainText:   []byte("Hi"),
+		Attachments: []Attachment{{S3Key: "k", Filename: "deck.pdf", MimeType: "application/pdf"}},
+		FromName:    "Renée Doe, Jr.",
+	})
+	if out.FromName != "Renée Doe, Jr." {
+		t.Errorf("FromName = %q", out.FromName)
+	}
+	if len(out.Attachments) != 1 || out.Attachments[0].Filename != "deck.pdf" {
+		t.Errorf("attachments did not survive alongside the from name: %+v", out.Attachments)
+	}
+
+	legacy := roundTrip(t, &EmailBlob{PlainText: []byte("Hi")})
+	if legacy.FromName != "" {
+		t.Errorf("blob without a from name decoded one: %q", legacy.FromName)
+	}
+	data, _ := (&EmailBlob{PlainText: []byte("Hi")}).EncodeBinary()
+	if binaryFlags(data)&FlagFromName != 0 {
+		t.Error("empty from name set the flag")
+	}
+}
+
+func binaryFlags(data []byte) uint32 {
+	return uint32(data[5])<<24 | uint32(data[6])<<16 | uint32(data[7])<<8 | uint32(data[8])
+}

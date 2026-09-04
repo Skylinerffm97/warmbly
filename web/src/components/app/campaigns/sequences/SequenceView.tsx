@@ -124,6 +124,10 @@ export default function SequenceView({
                     onSubjectChange={(v) => patch({ subject: v })}
                     bodyHtml={draft.body_html}
                     onBodyChange={(html, plain) => patch({ body_html: html, body_plain: plain })}
+                    campaignId={campaignId}
+                    stepId={sequence.id}
+                    canSendTest
+                    dirty={savable}
                 />
 
                 {index > 0 && (

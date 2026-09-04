@@ -7,6 +7,12 @@ import { useRealtimeEvents } from './useRealtimeEvents'
 import { PresenceProvider } from './PresenceProvider'
 import useUnseenCount from '@/lib/api/hooks/app/unibox/useUnseenCount'
 
+// Heartbeat roundtrip bands behind the header's connection indicator. A healthy
+// socket answers in tens of milliseconds, and the provider's own watchdog gives
+// up at 8s and reconnects, so "poor" stays well under that.
+const DEGRADED_LATENCY_MS = 500
+const POOR_LATENCY_MS = 2000
+
 export function RealtimeManager({ children }: { children: React.ReactNode }) {
   const { isConnected, reconnectAttempt, joinChannel, leaveChannel } = useSocket()
   const { user } = useUserProfile()
@@ -17,10 +23,9 @@ export function RealtimeManager({ children }: { children: React.ReactNode }) {
   const addJoinedChannel = useAppStore((s) => s.addJoinedChannel)
   const removeJoinedChannel = useAppStore((s) => s.removeJoinedChannel)
   const setUnseenCount = useAppStore((s) => s.setUnseenCount)
+  const wsLatencyMs = useAppStore((s) => s.wsLatencyMs)
 
   const queryClient = useQueryClient()
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastHeartbeatRef = useRef<number>(Date.now())
   const hadConnectionRef = useRef(false)
 
   // Catch-up on reconnect: events are fire-and-forget, so anything emitted
@@ -101,30 +106,26 @@ export function RealtimeManager({ children }: { children: React.ReactNode }) {
     }
   }, [isConnected, currentOrg?.id, joinChannel, leaveChannel, addJoinedChannel, removeJoinedChannel])
 
-  // Connection quality monitoring
+  // Connection quality, from the heartbeat roundtrip the socket provider
+  // measures. The previous version compared its own 5s interval against
+  // itself, so ordinary timer drift read as "degraded" and the header claimed
+  // "Slow connection" on a perfectly healthy socket.
   useEffect(() => {
     if (!isConnected) return
-
-    lastHeartbeatRef.current = Date.now()
-
-    heartbeatRef.current = setInterval(() => {
-      const elapsed = Date.now() - lastHeartbeatRef.current
-      if (elapsed > 15000) {
-        setConnectionQuality('poor')
-      } else if (elapsed > 5000) {
-        setConnectionQuality('degraded')
-      } else {
-        setConnectionQuality('good')
-      }
-      lastHeartbeatRef.current = Date.now()
-    }, 5000)
-
-    return () => {
-      if (heartbeatRef.current) {
-        clearInterval(heartbeatRef.current)
-      }
+    // Null until the first heartbeat reply lands: a connected socket with
+    // nothing to report yet, not a slow one.
+    if (wsLatencyMs === null) {
+      setConnectionQuality('good')
+      return
     }
-  }, [isConnected, setConnectionQuality])
+    if (wsLatencyMs > POOR_LATENCY_MS) {
+      setConnectionQuality('poor')
+    } else if (wsLatencyMs > DEGRADED_LATENCY_MS) {
+      setConnectionQuality('degraded')
+    } else {
+      setConnectionQuality('good')
+    }
+  }, [isConnected, wsLatencyMs, setConnectionQuality])
 
   // Seed the unread inbox count from the server. The store value is otherwise
   // session-only (realtime increments it but it starts at 0), so seeding makes

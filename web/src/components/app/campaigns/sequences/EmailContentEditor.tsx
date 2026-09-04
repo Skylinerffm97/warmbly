@@ -1,8 +1,10 @@
 // Shared email composer used by BOTH the step's original email and each A/B
 // variant, so every arm has the identical toolset: a template picker, save as
 // template, Write with AI, a subject with variable insert, a body with an
-// Edit/Preview toggle that renders through the real send engine, template
-// validity warnings, and the advisory content score.
+// Edit/Preview toggle that renders through the real send engine (for a chosen
+// contact and mailbox, with signature, opt-out footer and attachments when the
+// campaign is known), a "send test" action, template validity warnings, and
+// the advisory content score.
 
 import React from "react";
 import {
@@ -10,6 +12,7 @@ import {
     BookmarkPlusIcon,
     EyeIcon,
     Loader2Icon,
+    PaperclipIcon,
     PencilLineIcon,
     SparklesIcon,
 } from "lucide-react";
@@ -17,6 +20,11 @@ import toast from "react-hot-toast";
 import RichTextEditor, { VariableMenu } from "./RichTextEditor";
 import { useTemplatePreview } from "@/lib/api/hooks/app/campaigns/useTemplatePreview";
 import type { TemplatePreview } from "@/lib/api/client/app/campaigns/previewTemplate";
+import type Contact from "@/lib/api/models/app/contacts/Contact";
+import type Inbox from "@/lib/api/models/app/emails/Inbox";
+import formatBytes from "@/lib/helper/formatBytes";
+import { PreviewContactPicker, PreviewMailboxPicker, SendTestButton } from "./PreviewControls";
+import { SAMPLE_CONTACT_LABEL, contactLabel, useCampaignSenderInboxes } from "./previewContext";
 import { Label, TextInput } from "@/components/ui/field";
 import {
     PopoverMenu,
@@ -30,7 +38,7 @@ import useCreateTemplate from "@/lib/api/hooks/app/templates/useCreateTemplate";
 import { useConfirm } from "@/hooks/context/confirm";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
-import { VARIABLES, SAMPLE, htmlToPlain, promptToHtml, renderPreview, templateIssue } from "./emailPreview";
+import { VARIABLES, htmlToPlain, promptToHtml, renderPreview, templateIssue } from "./emailPreview";
 import { LINK_VARIABLES } from "@/lib/templateVars";
 
 export default function EmailContentEditor({
@@ -40,6 +48,10 @@ export default function EmailContentEditor({
     onBodyChange,
     subjectPlaceholder = "Quick question, {{.FirstName}}",
     bodyPlaceholder = "Hi {{.FirstName}}, …",
+    campaignId,
+    stepId,
+    canSendTest = false,
+    dirty = false,
 }: {
     subject: string;
     onSubjectChange: (value: string) => void;
@@ -47,22 +59,70 @@ export default function EmailContentEditor({
     onBodyChange: (html: string, plain: string) => void;
     subjectPlaceholder?: string;
     bodyPlaceholder?: string;
+    // When set, the preview renders for a chosen lead and mailbox and shows the
+    // campaign's opt-out footer, signature and attachments.
+    campaignId?: string;
+    // The saved step this copy is sent by, so the preview lists the files that
+    // step attaches.
+    stepId?: string;
+    // Offer "Send test" for that step. Off for a variant arm: the test send
+    // mails the step's saved copy, which is not what this arm holds.
+    canSendTest?: boolean;
+    // Unsaved edits: the test send mails the saved step, so it waits for a save.
+    dirty?: boolean;
 }) {
     const [tab, setTab] = React.useState<"edit" | "preview">("edit");
 
+    // Preview context: null contact = the built-in sample; the mailbox defaults
+    // to the campaign's first enabled sender once the pool has loaded.
+    const [previewContact, setPreviewContact] = React.useState<Contact | null>(null);
+    const [previewMailbox, setPreviewMailbox] = React.useState<Inbox | null>(null);
+    const [serverPreview, setServerPreview] = React.useState<TemplatePreview | null>(null);
+    const senders = useCampaignSenderInboxes(campaignId ?? "");
+    // Both picks belong to one campaign, so drop them when this editor is
+    // pointed at a different one, or at none, without remounting. The rendered
+    // panel goes with them: it names a sender and files of the old campaign.
+    React.useEffect(() => {
+        setPreviewContact(null);
+        setPreviewMailbox(null);
+        setServerPreview(null);
+    }, [campaignId]);
+    React.useEffect(() => {
+        if (!campaignId) return;
+        if (previewMailbox && senders.inboxes.some((i) => i.id === previewMailbox.id)) return;
+        setPreviewMailbox(senders.inboxes[0] ?? null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [campaignId, senders.inboxes.map((i) => i.id).join(",")]);
+
     const previewMut = useTemplatePreview();
     const runPreview = previewMut.mutateAsync;
-    const [serverPreview, setServerPreview] = React.useState<TemplatePreview | null>(null);
     React.useEffect(() => {
         if (tab !== "preview") return;
+        // Responses can land out of order; only the newest request may paint.
+        let active = true;
         const t = setTimeout(() => {
-            runPreview({ subject, body_html: bodyHtml, body_plain: htmlToPlain(bodyHtml) })
-                .then(setServerPreview)
-                .catch(() => setServerPreview(null));
+            runPreview({
+                subject,
+                body_html: bodyHtml,
+                body_plain: htmlToPlain(bodyHtml),
+                ...(campaignId && previewContact ? { contact_id: previewContact.id } : {}),
+                ...(campaignId ? { campaign_id: campaignId } : {}),
+                ...(campaignId && previewMailbox ? { account_id: previewMailbox.id } : {}),
+                ...(campaignId && stepId ? { step_id: stepId } : {}),
+            })
+                .then((p) => {
+                    if (active) setServerPreview(p);
+                })
+                .catch(() => {
+                    if (active) setServerPreview(null);
+                });
         }, 250);
-        return () => clearTimeout(t);
+        return () => {
+            active = false;
+            clearTimeout(t);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, subject, bodyHtml]);
+    }, [tab, subject, bodyHtml, previewContact?.id, campaignId, previewMailbox?.id, stepId]);
 
     const tplIssue = templateIssue(subject) || templateIssue(bodyHtml) || templateIssue(htmlToPlain(bodyHtml));
 
@@ -186,6 +246,32 @@ export default function EmailContentEditor({
                     />
                 ) : (
                     <div className="rounded-md border border-slate-200 bg-white">
+                        {campaignId && (
+                            <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200/70 px-2 py-1.5">
+                                <span className="px-1 text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">Preview as</span>
+                                <PreviewContactPicker campaignId={campaignId} value={previewContact} onChange={setPreviewContact} />
+                                <PreviewMailboxPicker inboxes={senders.inboxes} value={previewMailbox} onChange={setPreviewMailbox} />
+                                {stepId && canSendTest && (
+                                    <div className="ml-auto">
+                                        <SendTestButton
+                                            campaignId={campaignId}
+                                            stepId={stepId}
+                                            contact={previewContact}
+                                            mailbox={previewMailbox}
+                                            dirty={dirty}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {serverPreview?.from && (
+                            <div className="border-b border-slate-200/70 px-3 py-2 text-[12.5px]">
+                                <span className="text-slate-400">From: </span>
+                                <span className="text-slate-800">
+                                    {serverPreview.from.name ? `${serverPreview.from.name} <${serverPreview.from.email}>` : serverPreview.from.email}
+                                </span>
+                            </div>
+                        )}
                         <div className="border-b border-slate-200/70 px-3 py-2 text-[12.5px]">
                             <span className="text-slate-400">Subject: </span>
                             <span className="text-slate-800">{(serverPreview?.subject ?? renderPreview(subject)) || "—"}</span>
@@ -193,11 +279,34 @@ export default function EmailContentEditor({
                         <div
                             className="tiptap-body min-h-[200px] px-3 py-2.5 text-[13px] leading-relaxed text-slate-800"
                             dangerouslySetInnerHTML={{
-                                __html: (serverPreview?.body_html ?? renderPreview(bodyHtml)) || '<p class="text-slate-300">Nothing to preview yet.</p>',
+                                __html:
+                                    (serverPreview?.body_html ?? renderPreview(bodyHtml)) ||
+                                    (serverPreview?.body_plain
+                                        ? `<pre class="whitespace-pre-wrap font-sans">${escapeHtml(serverPreview.body_plain)}</pre>`
+                                        : '<p class="text-slate-300">Nothing to preview yet.</p>'),
                             }}
                         />
+                        {(serverPreview?.attachments?.length ?? 0) > 0 && (
+                            <ul className="flex flex-wrap gap-1.5 border-t border-slate-200/70 px-3 py-2">
+                                {serverPreview!.attachments!.map((a) => (
+                                    <li
+                                        key={a.id}
+                                        title={a.mime_type}
+                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-700"
+                                    >
+                                        <PaperclipIcon className="w-3 h-3 text-slate-400" />
+                                        <span className="max-w-[200px] truncate">{a.filename}</span>
+                                        <span className="text-slate-400">{formatBytes(a.size)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                         <p className="border-t border-slate-200/70 px-3 py-1.5 text-[10.5px] text-slate-400">
-                            Rendered with the real send engine against sample data ({SAMPLE.FirstName} at {SAMPLE.Company}) — conditionals, functions, and spintax all run.
+                            {campaignId
+                                ? `Rendered with the real send engine for ${previewContact ? contactLabel(previewContact) : SAMPLE_CONTACT_LABEL}${
+                                      previewMailbox ? `, with ${previewMailbox.email}'s signature` : ""
+                                  } and the campaign's opt-out footer. Tracking links are not rewritten here.`
+                                : `Rendered with the real send engine for ${SAMPLE_CONTACT_LABEL}. Conditionals, functions and spintax all run.`}
                         </p>
                     </div>
                 )}
@@ -226,6 +335,10 @@ export default function EmailContentEditor({
             <ContentScore subject={subject} bodyHtml={bodyHtml} bodyPlain={htmlToPlain(bodyHtml)} />
         </div>
     );
+}
+
+function escapeHtml(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function TabBtn({
