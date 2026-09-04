@@ -671,12 +671,13 @@ Auth: **Scope** `READ_CONTACTS` · **Org permission** `view_contacts`
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
 | `id` | path | UUID | Contact ID. |
-| `limit` | query | integer | Page size, 1 to 200 (default 50). |
-| `before` | query | string (RFC 3339 nano) | The `at` timestamp of the oldest event from the previous page. |
+| `limit` | query | integer | Page size, 1 to 200 (default 50). Anything else is a `400`. |
+| `cursor` | query | string | Opaque pagination cursor from `pagination.next_cursor`. A malformed cursor is a `400`. |
+| `before` | query | string (RFC 3339 nano) | Deprecated. Returns the events strictly older than this timestamp, which can skip events that share an instant with the page boundary; use `cursor`. Ignored when `cursor` is set. |
 
 ### Response
 
-Returns a `data` array and a `has_more` flag (not a cursor envelope). Paginate by passing the oldest event's `at` as `before`.
+Returns a `data` array and the standard `pagination` envelope. Paginate by passing `pagination.next_cursor` back as `cursor` until `has_more` is `false`. The cursor is the exact position of the last event on the page (its time, source and row), so events that share a timestamp, common when a send, its open and a note land in the same second, are never skipped or repeated across pages. The top-level `has_more` mirrors `pagination.has_more` and is kept for clients written before the envelope. `pagination.total` is always `null`: the feed is merged from several tables and is never counted.
 
 ```json
 {
@@ -734,7 +735,8 @@ Returns a `data` array and a `has_more` flag (not a cursor envelope). Paginate b
       "user_id": "u1..."
     }
   ],
-  "has_more": false
+  "has_more": false,
+  "pagination": { "total": null, "next_cursor": null, "has_more": false }
 }
 ```
 
