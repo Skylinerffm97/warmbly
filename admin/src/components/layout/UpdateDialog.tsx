@@ -398,16 +398,20 @@ function Overview({ state }: { state: UpdateState }) {
 function UpdaterNotice({ state }: { state: UpdateState }) {
     const u = state.updater;
     // A clone-free install has no checkout to pull, so the by-hand command is
-    // the compose one. The release block is the only signal for which it is,
-    // and an unreachable updater does not report one, so fall back to naming
-    // both rather than printing a command that cannot work.
-    const byHand = u.release ? "docker compose pull && docker compose up -d" : "git pull && make up";
+    // the compose one. Which install this is comes from the release block, and
+    // an unreachable updater reports neither block, so that case names both
+    // rather than printing one command that may not work.
+    const byHand = u.release
+        ? "docker compose pull && docker compose up -d"
+        : u.checkout
+          ? "git pull && make up"
+          : null;
     if (u.status === "unreachable") {
         return (
             <Notice tone="warning">
                 <div className="font-medium text-foreground">The updater is not answering</div>
                 {u.error} Until it does, update by hand from the install directory:
-                <Cmd>{byHand}</Cmd>
+                {byHand ? <Cmd>{byHand}</Cmd> : <BothCommands />}
             </Notice>
         );
     }
@@ -415,10 +419,24 @@ function UpdaterNotice({ state }: { state: UpdateState }) {
         <Notice tone="info">
             <div className="font-medium text-foreground">This panel can only report</div>
             No updater is configured, so apply updates from a shell on the host:
-            <Cmd>{byHand}</Cmd>
+            {byHand ? <Cmd>{byHand}</Cmd> : <BothCommands />}
             To get the button, enable the updater compose profile (`make up` and the installer
             both do) or run the updater unit on a bare-metal host.
         </Notice>
+    );
+}
+
+// Shown when the updater is unreachable, so nothing says which shape of install
+// this is. Naming both beats guessing: the wrong one fails confusingly on an
+// install that has no checkout, or no images to pull.
+function BothCommands() {
+    return (
+        <>
+            <div className="mt-1.5 text-xs">From an install.sh install:</div>
+            <Cmd>docker compose pull && docker compose up -d</Cmd>
+            <div className="text-xs">From a git checkout:</div>
+            <Cmd>git pull && make up</Cmd>
+        </>
     );
 }
 

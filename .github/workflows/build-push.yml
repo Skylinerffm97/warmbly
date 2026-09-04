@@ -64,7 +64,10 @@ jobs:
             updater:
               - 'go.mod'
               - 'go.sum'
-              - 'internal/updater/**'
+              # internal/** and not internal/updater/**: the binary links
+              # internal/version and whatever else it grows, and an image that
+              # silently skips a rebuild is worse than one rebuilt too often.
+              - 'internal/**'
               - 'cmd/updater/**'
               - 'deploy/docker/updater.Dockerfile'
             tracking:

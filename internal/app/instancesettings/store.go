@@ -13,10 +13,11 @@ import (
 type Store interface {
 	Get(ctx context.Context) (Document, error)
 	Put(ctx context.Context, doc Document, updatedBy *uuid.UUID) error
-	// Exists reports whether the row has ever been written. Get cannot answer
-	// that: it resolves an absent row to the defaults, deliberately, so the
-	// invitation path never breaks on a missing row.
-	Exists(ctx context.Context) (bool, error)
+	// Insert writes the document only when no row exists yet, and reports
+	// whether it did. It is one statement rather than a read followed by a
+	// write, so two processes booting together cannot both decide the row is
+	// absent and have the loser overwrite the winner.
+	Insert(ctx context.Context, doc Document) (bool, error)
 }
 
 type pgStore struct {
@@ -47,16 +48,20 @@ func (s *pgStore) Get(ctx context.Context) (Document, error) {
 	return doc, nil
 }
 
-func (s *pgStore) Exists(ctx context.Context) (bool, error) {
-	var one int
-	err := s.db.QueryRow(ctx, `SELECT 1 FROM instance_settings WHERE id = true`).Scan(&one)
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
+func (s *pgStore) Insert(ctx context.Context, doc Document) (bool, error) {
+	raw, err := json.Marshal(doc)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	tag, err := s.db.Exec(ctx, `
+		INSERT INTO instance_settings (id, doc, updated_at)
+		VALUES (true, $1::jsonb, NOW())
+		ON CONFLICT (id) DO NOTHING
+	`, raw)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *pgStore) Put(ctx context.Context, doc Document, updatedBy *uuid.UUID) error {

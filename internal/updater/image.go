@@ -74,6 +74,9 @@ func (r *Runner) imageUpdate(ctx context.Context, job *Job, tag string) error {
 		tag = r.readTag()
 		r.logf(job, "no release named; re-pulling the pinned tag %s", tag)
 	}
+	if err := validTag(tag); err != nil {
+		return err
+	}
 	from := r.readTag()
 	envPath := filepath.Join(r.cfg.RepoDir, envFileName)
 	if err := setEnvVar(envPath, tagVar, tag); err != nil {
@@ -111,6 +114,28 @@ func (r *Runner) imageUpdate(ctx context.Context, job *Job, tag string) error {
 		r.step(job, "prune")
 		if err := r.exec(ctx, job, r.cfg.RepoDir, nil, "docker", "image", "prune", "-f"); err != nil {
 			r.logf(job, "image prune failed (ignored): %v", err)
+		}
+	}
+	return nil
+}
+
+// validTag rejects anything that is not shaped like a release tag.
+//
+// The tag is written into .env as a whole line and then into an image
+// reference, so a newline in it would append arbitrary environment to the
+// install and a space would split the reference. The set below is what a
+// container tag may hold anyway (OCI: alphanumerics, then any of ._-), so this
+// refuses nothing legitimate.
+func validTag(tag string) error {
+	if tag == "" || len(tag) > 128 {
+		return fmt.Errorf("%q is not a usable release tag", tag)
+	}
+	for _, r := range tag {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-':
+		default:
+			return fmt.Errorf("release tag %q contains %q, which cannot appear in an image tag", tag, r)
 		}
 	}
 	return nil

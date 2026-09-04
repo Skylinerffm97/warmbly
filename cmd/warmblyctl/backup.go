@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,7 +167,11 @@ func runBackup(ctx context.Context, args []string) error {
 	default:
 		root := blobRoot()
 		m.BlobRoot = root
-		blobFiles, err = collectBlobs(root)
+		// The documented hand-off writes the bundle into the blob root, because
+		// that is the one path the container and the host both see. Archiving
+		// it into itself would grow a bundle by the size of the last one on
+		// every run, so the output is excluded by path.
+		blobFiles, err = collectBlobs(root, target)
 		if err != nil {
 			return err
 		}
@@ -268,7 +273,8 @@ func runRestore(ctx context.Context, args []string) error {
 	// The key check is the point of this command. A restore onto a host whose
 	// keys differ produces an instance that looks fine and whose every mailbox
 	// fails to authenticate, days later, with no error that names the cause.
-	if err := checkRestoreKeys(*file, m, *force); err != nil {
+	keysMatch, err := checkRestoreKeys(*file, m, *force)
+	if err != nil {
 		return err
 	}
 
@@ -310,9 +316,17 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 
 	steps := []string{}
-	if len(m.Keys) > 0 {
+	switch {
+	case len(m.Keys) == 0:
+	case keysMatch:
 		steps = append(steps,
 			"The bundle's keys match this host, so sealed mailbox credentials open as they did.",
+		)
+	default:
+		steps = append(steps,
+			"The keys did NOT match and --force was given, so every restored mailbox",
+			"credential is unreadable. Reconnect each mailbox, or put the bundle's keys",
+			"in .env and restore again.",
 		)
 	}
 	steps = append(steps,
@@ -332,14 +346,16 @@ func runRestore(ctx context.Context, args []string) error {
 // anywhere: warmblyctl runs inside a container and the .env that would have to
 // change is on the host, so the honest thing is to print the two lines and
 // stop, not to half-apply and report success.
-func checkRestoreKeys(file string, m manifest, force bool) error {
+// checkRestoreKeys reports whether this host can open the bundle's ciphertext,
+// and refuses the restore when it cannot unless force overrides it.
+func checkRestoreKeys(file string, m manifest, force bool) (bool, error) {
 	if len(m.Keys) == 0 {
 		warn("This bundle carries no encryption keys. If this host's CREDENTIALS_ENCRYPTION_KEY and\nKMS_LOCAL_MASTER_KEY are not the ones the bundle was written with, every restored mailbox\ncredential will fail to decrypt.")
-		return nil
+		return false, nil
 	}
 	bundled, err := readKeys(file)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var mismatched, missing []string
 	for _, k := range unrecoverableKeys {
@@ -356,7 +372,7 @@ func checkRestoreKeys(file string, m manifest, force bool) error {
 		}
 	}
 	if len(mismatched) == 0 && len(missing) == 0 {
-		return nil
+		return true, nil
 	}
 
 	lines := append(append([]string{}, missing...), mismatched...)
@@ -370,10 +386,10 @@ func checkRestoreKeys(file string, m manifest, force bool) error {
 	if force {
 		warn("%s", msg.String())
 		warn("--force was given, so the restore continues. Mailboxes will need reconnecting.")
-		return nil
+		return false, nil
 	}
 	msg.WriteString("\nPass --force only if you accept losing every stored mailbox credential.")
-	return errors.New(msg.String())
+	return false, errors.New(msg.String())
 }
 
 // ---------- database ----------
@@ -391,14 +407,10 @@ func dumpDatabase(ctx context.Context, dsn string) (string, int64, string, error
 	sum := sha256.New()
 	w := bufio.NewWriterSize(io.MultiWriter(tmp, sum), 1<<20)
 
-	cmd := exec.CommandContext(ctx, "pg_dump",
-		"--dbname="+dsn,
-		// No owner or ACL statements: the destination's database user is
-		// whatever its own compose file created, and it is never guaranteed to
-		// carry the same name as this one's.
-		"--no-owner", "--no-privileges",
-		"--format=plain",
-	)
+	// No owner or ACL statements: the destination's database user is whatever
+	// its own compose file created, and it is never guaranteed to carry the
+	// same name as this one's.
+	cmd := pgCommand(ctx, "pg_dump", dsn, "--no-owner", "--no-privileges", "--format=plain")
 	cmd.Stdout = w
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -455,7 +467,7 @@ func short(sum string) string {
 // bundle does not know about would otherwise survive into the restored
 // instance.
 func restoreDatabase(ctx context.Context, dsn, bundle string) error {
-	reset := exec.CommandContext(ctx, "psql", "--dbname="+dsn, "-v", "ON_ERROR_STOP=1", "-q",
+	reset := pgCommand(ctx, "psql", dsn, "-v", "ON_ERROR_STOP=1", "-q",
 		"-c", "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
 	var resetErr strings.Builder
 	reset.Stderr = &resetErr
@@ -469,7 +481,7 @@ func restoreDatabase(ctx context.Context, dsn, bundle string) error {
 	}
 	defer closeFn()
 
-	load := exec.CommandContext(ctx, "psql", "--dbname="+dsn, "-v", "ON_ERROR_STOP=1", "-q")
+	load := pgCommand(ctx, "psql", dsn, "-v", "ON_ERROR_STOP=1", "-q")
 	load.Stdin = sql
 	var loadErr strings.Builder
 	load.Stderr = &loadErr
@@ -477,6 +489,39 @@ func restoreDatabase(ctx context.Context, dsn, bundle string) error {
 		return fmt.Errorf("the dump did not load cleanly, so the database is now empty and unusable.\nFix the cause and run the restore again:\n%s", strings.TrimSpace(loadErr.String()))
 	}
 	return nil
+}
+
+// pgCommand builds a libpq invocation with the password moved out of argv.
+//
+// A connection string on the command line is readable by anyone on the host who
+// can list processes, and this one opens the database that holds every sealed
+// mailbox credential. libpq reads PGPASSWORD from the environment, which is not
+// world-readable on Linux, so the DSN that reaches argv carries no password.
+func pgCommand(ctx context.Context, name, dsn string, args ...string) *exec.Cmd {
+	clean, password := splitDSNPassword(dsn)
+	cmd := exec.CommandContext(ctx, name, append([]string{"--dbname=" + clean}, args...)...) //nolint:gosec // name is a literal at every call site
+	cmd.Env = os.Environ()
+	if password != "" {
+		cmd.Env = append(cmd.Env, "PGPASSWORD="+password)
+	}
+	return cmd
+}
+
+// splitDSNPassword returns the connection string with its password removed and
+// the password separately. A DSN this cannot parse (libpq also accepts
+// keyword/value form) is returned unchanged, because a connection that fails is
+// worse than a password in argv.
+func splitDSNPassword(dsn string) (string, string) {
+	parsed, err := url.Parse(dsn)
+	if err != nil || parsed.User == nil {
+		return dsn, ""
+	}
+	password, ok := parsed.User.Password()
+	if !ok || password == "" {
+		return dsn, ""
+	}
+	parsed.User = url.User(parsed.User.Username())
+	return parsed.String(), password
 }
 
 func instanceCounts(ctx context.Context, c *conn) (orgs, users, mailboxes int) {
@@ -517,7 +562,12 @@ func blobRoot() string {
 	return "/data/blobs"
 }
 
-func collectBlobs(root string) ([]blobEntry, error) {
+// collectBlobs walks the blob root, skipping the bundle being written and
+// warning about any earlier one still sitting there.
+func collectBlobs(root, exclude string) ([]blobEntry, error) {
+	if abs, aerr := filepath.Abs(exclude); aerr == nil {
+		exclude = abs
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -541,13 +591,28 @@ func collectBlobs(root string) ([]blobEntry, error) {
 		if d.IsDir() || !d.Type().IsRegular() {
 			return nil
 		}
-		st, serr := d.Info()
-		if serr != nil {
-			return serr
+		if abs, aerr := filepath.Abs(path); aerr == nil && abs == exclude {
+			return nil
 		}
 		rel, rerr := filepath.Rel(root, path)
 		if rerr != nil {
 			return rerr
+		}
+		// An earlier bundle left in the blob root is not blob data, and putting
+		// it inside this one doubles the archive for nothing.
+		if !strings.Contains(rel, string(os.PathSeparator)) &&
+			strings.HasPrefix(rel, "warmbly-") && strings.HasSuffix(rel, ".tar.gz") {
+			warn("%s looks like an earlier backup and was left out of this one. Delete it: it is sitting in the blob root, where it is backed up over and over.", filepath.Join(root, rel))
+			return nil
+		}
+		st, serr := d.Info()
+		if serr != nil {
+			// Vanished between the walk and the stat. A live instance writes
+			// bodies constantly, and one disappearing is not a failed backup.
+			if os.IsNotExist(serr) {
+				return nil
+			}
+			return serr
 		}
 		out = append(out, blobEntry{abs: path, rel: filepath.ToSlash(rel), size: st.Size(), mode: st.Mode().Perm()})
 		return nil
@@ -668,23 +733,58 @@ func tarBytes(tw *tar.Writer, name string, body []byte, mode os.FileMode, when t
 	return err
 }
 
+// tarFile writes one file, tolerating the instance writing to it underneath.
+//
+// A tar entry's size is fixed by its header, so a file that grows between the
+// stat and the copy has to be truncated and one that shrinks has to be padded;
+// getting either wrong corrupts the whole archive. A file that disappears is
+// skipped, because a live instance is writing message bodies the entire time a
+// backup runs and one of them vanishing is not a failed backup.
 func tarFile(tw *tar.Writer, name, path string, mode os.FileMode, when time.Time) error {
 	st, err := os.Stat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	f, err := os.Open(path) //nolint:gosec // paths come from the instance's own blob root
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	defer f.Close()
+
+	size := st.Size()
 	if err := tw.WriteHeader(&tar.Header{
-		Name: name, Mode: int64(mode), Size: st.Size(), ModTime: when, Typeflag: tar.TypeReg,
+		Name: name, Mode: int64(mode), Size: size, ModTime: when, Typeflag: tar.TypeReg,
 	}); err != nil {
 		return err
 	}
-	_, err = io.Copy(tw, f)
-	return err
+	written, err := io.CopyN(tw, f, size)
+	if err != nil && err != io.EOF {
+		return err
+	}
+	if written < size {
+		// It shrank. The header is already committed, so the entry is padded
+		// to the length it promised.
+		if _, perr := io.CopyN(tw, zeroReader{}, size-written); perr != nil {
+			return perr
+		}
+	}
+	return nil
+}
+
+// zeroReader pads a tar entry whose file shrank while it was being read.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 func openBundle(path string) (*os.File, *gzip.Reader, *tar.Reader, error) {

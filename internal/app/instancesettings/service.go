@@ -105,17 +105,22 @@ func (s *service) Bootstrap(ctx context.Context, patch Patch) (bool, error) {
 	if s.store == nil {
 		return false, nil
 	}
-	written, err := s.store.Exists(ctx)
+	next := patch.Apply(Defaults())
+	next.Normalize()
+	// One statement, not a read then a write: two processes booting together
+	// must not both find the row absent and have the loser overwrite whatever
+	// the winner wrote. The insert is skipped entirely when a row exists, so a
+	// document an admin has already saved is never touched.
+	inserted, err := s.store.Insert(ctx, next)
 	if err != nil {
 		return false, err
 	}
-	if written {
+	if !inserted {
 		return false, nil
 	}
-	// updatedBy is nil: nobody signed in made this change, the environment did.
-	if _, err := s.Put(ctx, patch, nil); err != nil {
-		return false, err
-	}
+	s.mu.Lock()
+	s.cached, s.cachedAt, s.loaded = next, time.Now(), true
+	s.mu.Unlock()
 	return true, nil
 }
 

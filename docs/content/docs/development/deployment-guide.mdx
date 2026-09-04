@@ -775,6 +775,7 @@ One command writes all three of the things that only restore together:
 ```bash
 docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
 docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
+docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
 
 That bundle holds the database, the blob root and the encryption keys, and `warmblyctl restore` puts it back on another host, refusing to run when that host's keys are not the ones the bundle was sealed with. [Data control](/development/data-control/#backups) covers scheduling it and moving an instance.

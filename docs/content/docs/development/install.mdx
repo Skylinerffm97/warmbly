@@ -135,7 +135,7 @@ The question the rest of the install cannot answer for you, and the reason the w
 | **A path you choose** | An external disk or a mount you already snapshot |
 | **Docker named volumes** | Managed by Docker, portable only through `docker volume` |
 
-A real path is the default, because it is the choice that makes backup and migration obvious: moving the instance to another host is `rsync` of that path plus the `.env`. Compose reads a volume source starting with `/` as a bind mount and anything else as a named volume, so this is one variable per store and no second compose file.
+A real path is the default, because it is the choice that makes backup and migration obvious: with the stack stopped, moving the instance to another host is `rsync` of that path plus the `.env`. Do not copy it while Postgres is running; a live data directory is not a consistent snapshot. To move an instance without stopping it, use [`warmblyctl backup`](/development/data-control/#backups). Compose reads a volume source starting with `/` as a bind mount and anything else as a named volume, so this is one variable per store and no second compose file.
 
 Then, behind one prompt: an external Postgres or Redis (the bundled container is left out entirely when you bring your own), and where message bodies, attachments and avatars go.
 

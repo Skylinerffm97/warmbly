@@ -113,9 +113,11 @@ docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
 
 `/data/blobs` is used as the hand-off because it is the one path the container
-and the host both see. The bundle is 0600 and holds every mailbox credential
-on the instance plus the keys that open them; never write it somewhere
-world-readable and never print its contents.
+and the host both see. Delete it there afterwards, as above: `backup` leaves
+its own output out of the archive, but a bundle left in the blob root is swept
+into the next one. The bundle is 0600 and holds every mailbox credential on the
+instance plus the keys that open them; never write it somewhere world-readable
+and never print its contents.
 
 `install.sh --wizard` can schedule exactly this (a `backup.sh` and a systemd
 timer); `--backup-dir` sets it up non-interactively.

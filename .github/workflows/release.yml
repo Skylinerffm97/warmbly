@@ -220,6 +220,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The manifest step logs in to GHCR and inspects each published image;
+      # without read access that fails on a private package.
+      packages: read
     steps:
       - uses: actions/checkout@v4
         with:

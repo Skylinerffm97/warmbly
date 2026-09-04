@@ -18,7 +18,7 @@ git clone https://github.com/warmbly/warmbly && cd warmbly
 make up
 ```
 
-Either way you end on `make claim` (or `warmblyctl setup-link`), which prints a single-use link and ends on the command that reissues it:
+Both print a single-use link when they finish. `make claim`, or `warmblyctl setup-link` inside the backend container, prints a fresh one at any time while the instance is still unclaimed:
 
 ```
   No accounts exist yet. Open this link to claim the instance and

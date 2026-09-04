@@ -111,7 +111,10 @@ It is read only while the settings row has never been written. From the first sa
 ```bash
 docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
 docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
+docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
+
+`/data/blobs` is a hand-off, not a destination: it is the one path the container and the host both see. The third line matters. `backup` leaves its own output out of the archive, but a bundle left there is backed up by the next run, so move it out and delete it.
 
 The bundle is written 0600 and holds every mailbox credential on the instance plus the keys that open them. Treat the file as you would the instance itself.
 
@@ -187,7 +190,7 @@ Mailboxes should be connected, not needing a reconnect. If they need one, the ke
 
 </Steps>
 
-The `rsync` alternative works too and is sometimes simpler: stop the stack, copy the data root and the `.env` to the new host, start it there. It moves the same bytes; the bundle exists because it is the version that survives a different host layout, a different Postgres, and a partial copy.
+The `rsync` alternative works too and is sometimes simpler, as long as the stack is **stopped** first: a running Postgres data directory copied file by file is not a consistent snapshot and can restore as a corrupt cluster. Stop it, copy the data root and the `.env` to the new host, start it there. It moves the same bytes; the bundle exists because it is the version that survives a different host layout, a different Postgres, a live instance, and a partial copy.
 
 ### One workspace, to another instance
 

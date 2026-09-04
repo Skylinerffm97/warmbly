@@ -41,7 +41,7 @@ for. Prefer parsing that over reasoning from the prose.
 | List workspaces | `warmblyctl org list` |
 | Move a workspace out | `warmblyctl org export --org <id\|slug\|owner-email> --out file.zip` |
 | Move a workspace in | `warmblyctl org import --org ... --file file.zip --dry-run` first |
-| Back the instance up | `warmblyctl backup --out /data/blobs/warmbly.tar.gz` |
+| Back the instance up | `warmblyctl backup --out /data/blobs/warmbly.tar.gz`, then copy it out and delete it |
 | Restore one onto this instance | `warmblyctl restore --file /data/blobs/warmbly.tar.gz` |
 
 ## Mechanics that bite
