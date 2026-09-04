@@ -10,7 +10,16 @@ import (
 // 8-bit name for "Renée", and silently splits the address into two recipients
 // for "Doe, Jane". Both matter now that every send builds its own headers.
 func (c *Client) GetAddress() string {
-	name := strings.TrimSpace(c.FirstName + " " + c.LastName)
+	return c.FromAddress("")
+}
+
+// FromAddress is GetAddress with a per-send display name; empty falls back to
+// the name the client was built with.
+func (c *Client) FromAddress(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.TrimSpace(c.FirstName + " " + c.LastName)
+	}
 	addr := mail.Address{Name: name, Address: c.Email}
 	return addr.String()
 }

@@ -54,6 +54,7 @@ type Attachment struct {
 // caller that ignores them is unaffected.
 func (c *Client) Send(
 	ctx context.Context,
+	fromName string,
 	to, cc, bcc []string,
 	messageID,
 	subject, bodyPlain, bodyHTML,
@@ -61,7 +62,13 @@ func (c *Client) Send(
 	attachments []Attachment,
 	customHeaders ...map[string]string,
 ) ([]byte, *errx.MailError) {
-	from := mail.Address{Address: c.Email, Name: fmt.Sprintf("%s %s", c.FirstName, c.LastName)}
+	// A per-send name (the mailbox as renamed in the dashboard) wins over the
+	// one cached at load time.
+	fromName = strings.TrimSpace(fromName)
+	if fromName == "" {
+		fromName = strings.TrimSpace(c.FirstName + " " + c.LastName)
+	}
+	from := mail.Address{Address: c.Email, Name: fromName}
 
 	// ----- Headers -----
 	headers := map[string]string{

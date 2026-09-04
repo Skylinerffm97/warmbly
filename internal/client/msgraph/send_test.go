@@ -86,6 +86,7 @@ func newSendClient(rt *sendRT) *Client {
 func send(c *Client, headers map[string]string, parent *models.EmailMessageData) (string, error) {
 	return c.SendMessage(
 		context.Background(),
+		"",
 		[]string{"partner@example.com"}, nil, nil,
 		"<minted@outlook.com>",
 		"quick learning question",

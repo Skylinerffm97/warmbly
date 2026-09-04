@@ -229,11 +229,21 @@ const PreviewUnsubscribeLink = "https://example.com/unsubscribe/preview"
 // that failed to parse and fell through to literal substitution).
 var unresolvedToken = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 
+// bodyClose matches a closing body tag in any case, since HTML tag names are
+// case-insensitive and a pasted document may well carry </BODY>.
+var bodyClose = regexp.MustCompile(`(?i)</body\s*>`)
+
 // PreviewTemplates renders subject/html/plain against contact EXACTLY as the
 // send path does (template render + spintax), and reports parse errors plus any
 // tokens that did not resolve.
 func PreviewTemplates(subject, bodyHTML, bodyPlain string, contact models.Contact) TemplatePreview {
-	extra := map[string]string{UnsubscribeLinkVar: PreviewUnsubscribeLink}
+	return previewTemplatesWith(subject, bodyHTML, bodyPlain, contact, PreviewUnsubscribeLink)
+}
+
+// previewTemplatesWith is PreviewTemplates with the unsubscribe link the
+// {{unsubscribe_link}} variable resolves to.
+func previewTemplatesWith(subject, bodyHTML, bodyPlain string, contact models.Contact, unsubscribeURL string) TemplatePreview {
+	extra := map[string]string{UnsubscribeLinkVar: unsubscribeURL}
 	p := TemplatePreview{
 		Subject:   expandSpintax(RenderTemplateWith(subject, contact, extra)),
 		BodyHTML:  expandSpintax(RenderTemplateWith(bodyHTML, contact, extra)),
@@ -256,17 +266,25 @@ func PreviewTemplates(subject, bodyHTML, bodyPlain string, contact models.Contac
 	return p
 }
 
-// AddSignature adds signature to email body
+// AddSignature places the mailbox signature under the body. HTML gets its own
+// block with a top margin, not <br><br>: the breaks stacked against the body's
+// own trailing margin and showed as blank lines in Apple Mail and Outlook.
 func AddSignature(body string, signature string, isHTML bool) string {
 	if signature == "" {
 		return body
 	}
 
-	if isHTML {
-		return body + "<br><br>" + signature
+	if !isHTML {
+		return body + "\n\n" + signature
 	}
 
-	return body + "\n\n" + signature
+	block := `<div style="margin-top:16px">` + signature + `</div>`
+	// Trailing content belongs inside the document, as for the pixel and footer.
+	if loc := bodyClose.FindAllStringIndex(body, -1); loc != nil {
+		at := loc[len(loc)-1][0]
+		return body[:at] + block + body[at:]
+	}
+	return body + block
 }
 
 // AddOpenTrackingPixel adds an invisible tracking pixel to HTML email.

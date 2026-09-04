@@ -132,6 +132,9 @@ func (s *emailSender) Send(ctx context.Context, taskID uuid.UUID, msg EmailMessa
 		WarmupToken:    msg.WarmupToken,
 		UnsubscribeURL: msg.UnsubscribeURL,
 		Attachments:    msg.Attachments,
+		// The name as saved now, so a rename applies to the very next send
+		// instead of waiting for the worker's cached identity to be rebuilt.
+		FromName: strings.TrimSpace(account.Name),
 	}
 
 	// Publish send email event to worker
