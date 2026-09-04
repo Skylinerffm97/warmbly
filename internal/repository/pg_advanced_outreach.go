@@ -664,7 +664,8 @@ func (r *advancedOutreachRepository) GetDeliverabilityDashboard(ctx context.Cont
 		SELECT COUNT(*) FROM tasks t
 		JOIN email_accounts ea ON ea.id = t.email_account_id
 		WHERE ea.organization_id = $1 AND t.task_type = 'campaign' AND t.status = 'completed'
-		  AND t.completed_at >= $2 AND t.completed_at <= $3`
+		  AND t.completed_at >= $2 AND t.completed_at <= $3
+		  AND ` + taskDispatchedEmail
 	_ = r.db.QueryRow(ctx, sentQuery, organizationID, from, to).Scan(&out.EmailsSent)
 	out.BounceRate = models.Rate(out.BounceCount, out.EmailsSent)
 	out.ComplaintRate = models.Rate(out.ComplaintCount, out.EmailsSent)
