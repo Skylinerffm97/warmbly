@@ -13,6 +13,7 @@ import {
     ExternalLink,
     GitBranch,
     Loader2,
+    Package,
     RefreshCw,
     RotateCw,
     XCircle,
@@ -51,6 +52,7 @@ const DOCS_UPDATES = "/development/updates/";
 
 const STEPS: Record<string, string[]> = {
     compose: ["fetch", "checkout", "build", "restart", "prune", "wait"],
+    image: ["resolve", "pull", "restart", "prune", "wait"],
     command: ["fetch", "checkout", "command", "wait"],
 };
 
@@ -58,6 +60,8 @@ const STEP_LABELS: Record<string, string> = {
     fetch: "Fetch",
     checkout: "Pull",
     build: "Build",
+    resolve: "Pin release",
+    pull: "Pull images",
     restart: "Restart",
     prune: "Clean up",
     command: "Run script",
@@ -137,6 +141,9 @@ export function UpdateDialog({ open, onOpenChange }: Props) {
     const updater = state?.updater;
     const checkout = updater?.checkout;
     const job = updater?.job ?? updater?.last_job;
+    // An image install never builds, so the confirmation must not promise a
+    // rebuild it will not do.
+    const imageMode = updater?.mode === "image";
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -170,8 +177,9 @@ export function UpdateDialog({ open, onOpenChange }: Props) {
                             <div className="animate-in fade-in slide-in-from-bottom-1 duration-200">
                             <Notice tone="warning">
                                 <div className="font-medium text-foreground">
-                                    This pulls the checkout, rebuilds the images and restarts every
-                                    service.
+                                    {imageMode
+                                        ? "This pulls the release images and restarts every service."
+                                        : "This pulls the checkout, rebuilds the images and restarts every service."}
                                 </div>
                                 <div className="mt-1">
                                     Sending and syncing pause for a few minutes and resume on their own;
@@ -280,6 +288,7 @@ export function UpdateDialog({ open, onOpenChange }: Props) {
 function Overview({ state }: { state: UpdateState }) {
     const { latest, updater } = state;
     const checkout = updater.checkout;
+    const release = updater.release;
     return (
         <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 text-[13px]">
             <dt className="text-muted-foreground">Latest release</dt>
@@ -332,6 +341,23 @@ function Overview({ state }: { state: UpdateState }) {
                 )}
             </dd>
 
+            {release && (
+                <>
+                    <dt className="text-muted-foreground">Installed</dt>
+                    <dd className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 font-mono text-xs">
+                            <Package className="size-3.5 text-muted-foreground" />
+                            {release.prefix}/*:{release.tag}
+                        </span>
+                        <span className="text-muted-foreground">
+                            {release.pinned
+                                ? "pinned to this release"
+                                : "following the channel tag"}
+                        </span>
+                    </dd>
+                </>
+            )}
+
             {checkout && (
                 <>
                     <dt className="text-muted-foreground">Checkout</dt>
@@ -371,12 +397,17 @@ function Overview({ state }: { state: UpdateState }) {
 
 function UpdaterNotice({ state }: { state: UpdateState }) {
     const u = state.updater;
+    // A clone-free install has no checkout to pull, so the by-hand command is
+    // the compose one. The release block is the only signal for which it is,
+    // and an unreachable updater does not report one, so fall back to naming
+    // both rather than printing a command that cannot work.
+    const byHand = u.release ? "docker compose pull && docker compose up -d" : "git pull && make up";
     if (u.status === "unreachable") {
         return (
             <Notice tone="warning">
                 <div className="font-medium text-foreground">The updater is not answering</div>
-                {u.error} Until it does, update by hand:
-                <Cmd>git pull && make up</Cmd>
+                {u.error} Until it does, update by hand from the install directory:
+                <Cmd>{byHand}</Cmd>
             </Notice>
         );
     }
@@ -384,9 +415,9 @@ function UpdaterNotice({ state }: { state: UpdateState }) {
         <Notice tone="info">
             <div className="font-medium text-foreground">This panel can only report</div>
             No updater is configured, so apply updates from a shell on the host:
-            <Cmd>git pull && make up</Cmd>
-            To get the button, enable the updater compose profile (`make up` does) or run the
-            updater unit on a bare-metal host.
+            <Cmd>{byHand}</Cmd>
+            To get the button, enable the updater compose profile (`make up` and the installer
+            both do) or run the updater unit on a bare-metal host.
         </Notice>
     );
 }

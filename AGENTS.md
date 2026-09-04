@@ -13,6 +13,15 @@ At a product level, the app does four main things:
 
 The backend API is the control plane. Workers are the execution plane.
 
+It ships as a hosted service and as a self-host, and the two are the same code.
+The front door for the self-host is one command,
+`curl -fsSL https://warmbly.com/install.sh | sh`, which pulls the published
+release images and needs no clone and no compiler. `--wizard` turns it into an
+interactive install that asks the data-control questions up front: where each
+store lives, what is kept and for how long, how it is backed up. The script is
+`site/public/install.sh` and it has its own rules below; the docs are
+`docs/content/docs/development/install.mdx` and `data-control.mdx`.
+
 ## Working In This Repo
 
 CI is strict. `go build ./...` succeeding is not enough — `golangci-lint` runs `gofmt` as part of its checks, and a single unformatted import block or mis-indented doc comment will fail the PR even when the code compiles cleanly. Before declaring any Go change done:
@@ -39,6 +48,7 @@ Docs stay in sync:
 - the customer docs site lives in `docs/` (Fumadocs, served at docs.warmbly.com); content is MDX under `docs/content/docs/` in three sections: `guides/` (product behavior), `learn/` (fundamentals), `api/` (API reference)
 - any change that alters user-visible behavior must update the matching docs page in the same change: a new or changed endpoint updates `api/endpoints.mdx` (scope map) and, where relevant, `api/authentication.mdx`; a new or changed API permission updates `api/permissions.mdx` including the permission table, presets, and all three language tabs in the constants section; a new or changed error code updates `api/error-codes.mdx`; a new or changed product feature, default, limit, or setting updates the relevant `guides/` page (or adds one, registered in `guides/meta.json` under the right section group)
 - removing or renaming a feature, endpoint, or permission means removing or updating its docs too; do not leave stale docs behind
+- self-hosting behavior has its own pages under `docs/content/docs/development/`: a change to the installer or to what it asks updates `install.mdx`; a change to where a store lives, how long something is kept, or how an instance is backed up or moved updates `data-control.mdx`; a new environment variable updates `configuration.mdx`, and a new database-backed setting updates its table there as well as the admin panel
 - follow the docs conventions: frontmatter `title` is the H1 (no `#` heading in the body), no decorative sidebar icons (pages and `meta.json` sections carry no `icon`; the source loader has the lucide icon plugin disabled, and code-sample tabs use the real language logo instead), sentence-case headings, no em dashes in prose, internal links use trailing slashes (`/guides/mailboxes/`)
 - verify with `pnpm types:check` and `pnpm lint` in `docs/` (the site is a fully static export; `pnpm build` writes `out/`)
 
@@ -81,6 +91,50 @@ Rows move as `jsonb` in both directions, so adding a *column* to an existing tab
 
 The same applies to the customer-facing side of a feature: if it stores org data, its docs page and `docs/content/docs/guides/workspace-export-import.mdx` should agree about whether that data moves.
 
+### The installer is a published artifact
+
+`site/public/install.sh` is the one-command self-host installer, served
+verbatim from the static site at `https://warmbly.com/install.sh`. What is in
+the repo is byte for byte what a stranger pipes into their shell, which makes
+it the highest-consequence file here that is not Go.
+
+It is a wizard: an animated stepper, arrow-key and vim menus, live pull and
+health screens, a review pass, and a `--demo` mode that plays the whole thing
+while installing nothing. `docs/content/docs/development/install.mdx` documents
+it and `data-control.mdx` documents what its questions decide; the
+`warmbly-install` skill is the agent-facing version.
+
+Rules, all of them learned from breaking them:
+
+- **POSIX sh, not bash.** It runs under whatever `/bin/sh` the host has, which
+  on Debian and Ubuntu is dash. A `sh -n` that passes under your own shell
+  proves nothing about that; `make installer-check` runs `dash -n` and
+  `shellcheck -s sh`
+- **`set -eu`, everything in a function, `main "$@"` on the last line**, so a
+  truncated download executes nothing. Watch for `[ x ] && y` as a function's
+  LAST command: it returns non-zero when the test fails, and under `set -e`
+  that ends the run. Use an `if`, or end with `return 0`
+- **Nothing drawn inside a redraw loop may be wider than the terminal.** A
+  wrapped line is two physical rows while every `ESC[nA` counts logical ones,
+  so one long option hint makes the menu draw over itself and over whatever was
+  on screen before it. Everything in a loop goes through `fit`
+- **The screen is not ours.** It appends by default, `--clear` is opt-in, and
+  `ESC[3J` (erase scrollback) is never sent
+- **Regenerate the checksum.** `site/public/install.sh.sha256` is what makes
+  "download, verify, read, run" a real alternative to piping into a shell.
+  `make installer-sha`, and CI fails when the two disagree
+- **Every answer is a flag and a `WARMBLY_*` variable.** An install that can
+  only be driven by keyboard cannot be driven by Ansible, cloud-init or an
+  agent, and the wizard exists to be optional
+- **Idempotent.** A second run adopts the existing `.env`, never regenerates a
+  secret (a new `CREDENTIALS_ENCRYPTION_KEY` is permanent data loss) and never
+  moves an existing data root
+
+Run `make installer-check` before pushing a change to it (POSIX parse,
+shellcheck, `--help`, `--demo`, `--print-env`, a compose file per answer shape,
+a pty width regression test, and the checksum). `make installer-demo` is how
+you see a UI change without installing anything.
+
 ### Verification: what to run, what to skip
 
 Keep the loop fast. The signals that matter are formatting, lint, and typecheck — not local builds or browser automation.
@@ -91,6 +145,10 @@ Always, before calling a Go change done:
 - run `make lint` (golangci-lint, which first runs `make check-migrations`)
 
 For frontend changes, run `pnpm typecheck` and `pnpm lint` in any tree you touched.
+
+For a change to `site/public/install.sh`, run `make installer-check`; it is the
+same script CI runs and it regenerates nothing, so a stale checksum fails there
+exactly as it will in CI.
 
 Do not:
 
@@ -116,6 +174,8 @@ Infra runs in docker; the Go services and frontends run natively on the host for
 - `make web` / `make admin` / `make site` — frontend dev servers (5173 / 5174 / 4321), pointed at the native backend.
 - `make seed` — load fixtures (after the backend has applied migrations).
 - `make fmt` / `make lint` — format and lint Go.
+- `make installer-demo` — walk the self-host installer's wizard with nothing installed: the real questions and review, a played pull and start. No Docker, no network, no file written. `WARMBLY_DEMO_FAST=1` collapses the animations while iterating on them.
+- `make installer-check` / `make installer-sha` — everything CI runs against `site/public/install.sh`, and the checksum regeneration that has to follow any edit to it.
 
 Prefer native `make backend` over rebuilding the docker backend image: docker rebuilds are slow because the image bakes in the migrations and the compiled binary, so a one-line change means a full image build + container recreate. The native targets skip all of that. The dockerized hot-reload flow (`make app`) and prod-image smoke test (`make up`) remain available when you specifically need containers.
 
@@ -203,10 +263,11 @@ API keys with the `REALTIME_SUBSCRIBE` permission (bit 11) can connect to the sa
 - `realtime/`: websocket fanout service
 - `web/`: in-product frontend (dashboard). Customer-facing only: it holds no platform-admin screens, and operator tooling must not be added back here
 - `admin/`: platform admin panel (:5174), the single operator surface. Workers, users, orgs, warmup, campaigns, analytics, audit. Every route sits behind `RequireAdmin` and the backend's `RequireAdminPermission` gates
-- `site/`: public marketing site (Astro 5 + Tailwind v4)
+- `site/`: public marketing site (Astro 5 + Tailwind v4). `site/public/install.sh` is the self-host installer served at warmbly.com/install.sh, with its checksum next to it; see the rules above before touching it
 - `deploy/`: production deploy manifests, infrastructure, and runtime config
 - `docs/`: documentation site (docs.warmbly.com); product guides, API reference, and self-hosting/engineering docs under `content/docs/development/`
-- `scripts/`: one-off tooling (codegen, migrations, local dev utilities)
+- `scripts/`: one-off tooling (codegen, migrations, installer checks, local dev utilities)
+- `skills/`: agent playbooks shipped with the repo (`warmbly-api` for the product, `warmbly-ops` for instance administration, `warmbly-install` for standing an instance up and moving it). A command an operator can run is not usable by an agent until it is in one of these
 
 ## Worker Topology
 
@@ -787,6 +848,8 @@ These files are the fastest way to rebuild context:
 
 - `README.md`
 - `docs/content/docs/development/architecture.mdx`
+- `docs/content/docs/development/install.mdx` and `data-control.mdx` (what a self-hoster is asked, and what each answer decides)
+- `site/public/install.sh` (the installer itself)
 - `cmd/worker/main.go`
 - `internal/app/worker/assignment.go`
 - `internal/tasks/email_task.go`

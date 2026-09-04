@@ -3,7 +3,15 @@ title: Updates
 description: How a self-hosted instance learns about a new Warmbly version, what the indicator in the admin panel means, and how Update and restart pulls, rebuilds and restarts the stack for you.
 ---
 
-A self-hosted Warmbly checks for a newer version on its own and shows it in the admin panel. Applying it is one button when the updater runs next to the stack: the checkout is pulled, every image is rebuilt, the services that changed are recreated, and the panel reconnects once the backend answers again. Nothing in flight is lost: sending and syncing pause for the restart and resume from the database on the other side.
+A self-hosted Warmbly checks for a newer version on its own and shows it in the admin panel. Applying it is one button when the updater runs next to the stack: the new version is fetched, the services that changed are recreated, and the panel reconnects once the backend answers again. Nothing in flight is lost: sending and syncing pause for the restart and resume from the database on the other side.
+
+How "fetched" happens depends on how the instance was installed, and the updater has a mode for each:
+
+| Mode | For | What an update is |
+|---|---|---|
+| `image` | An install from [`install.sh`](/development/install/) | Pin the new tag in `.env`, `docker compose pull`, recreate. Nothing is built |
+| `compose` | A git clone | `git pull`, `docker compose build`, recreate |
+| `command` | Anything else | `git pull`, then a build-and-restart script of your own |
 
 ## The indicator
 
@@ -47,7 +55,15 @@ The version comes from the binary itself: the Dockerfiles and `make up` stamp th
 
 The button appears when the updater is reachable and something newer exists. It needs the `manage_settings` admin permission, and every press is an audit row (`upgrade` on `instance`).
 
-What happens, in the order the dialog shows it:
+On an install from `install.sh`, in image mode:
+
+1. **Pin release.** The chosen tag is written into `WARMBLY_TAG` in the install's `.env`, so the pull, the recreate, and every later `docker compose up` you run by hand all resolve the same images. A pull that fails puts the old tag back rather than leaving `.env` pointing at images that do not exist.
+2. **Pull images.** `docker compose pull`.
+3. **Restart.** `docker compose up -d --no-build` for every service, minus the updater itself.
+4. **Clean up.** `docker image prune -f`, unless `UPDATER_PRUNE=false`.
+5. **Wait for backend.** The updater polls `/health` until it answers, for up to six minutes.
+
+On a git checkout, in compose mode:
 
 1. **Fetch.** `git fetch --tags --prune` on the checkout.
 2. **Pull.** On a branch, a fast-forward merge of the remote branch. On a checkout pinned to a tag, a checkout of the newest release. A checkout with local modifications is refused rather than merged over; commit or stash them, or set `UPDATER_ALLOW_DIRTY=true`.
@@ -63,12 +79,24 @@ The dialog streams the log. Close it and the pill keeps following the job; reloa
 Migrations are forward-only, so an update never needs to be rolled back to be safe with data in place. Read [backing up](/development/deployment-guide/#backing-up) anyway: a backup before an update is the one you are glad to have.
 
 <Callout type="warn" title="The updater holds the docker socket">
-Inside the compose stack the updater mounts `/var/run/docker.sock`, which is root on the host. That is why it lives behind the `updater` compose profile and answers only to a bearer token the backend holds, on the compose network, with no published port. The backend gates the button on an admin permission and audits it. If any of that is more trust than the host should extend, leave the profile off and update by hand.
+The updater mounts `/var/run/docker.sock`, which is root on the host. That is why on a clone it lives behind the `updater` compose profile, and why in every install it answers only to a bearer token the backend holds, on the compose network, with no published port. The backend gates the button on an admin permission and audits it. If any of that is more trust than the host should extend, leave the profile off and update by hand.
 </Callout>
 
 ## Enabling the updater
 
-### Docker Compose
+### An install from install.sh
+
+Already done. The installer writes the updater into the generated compose file in image mode, pointed at the install directory, sharing `INTERNAL_API_TOKEN` with the backend. Nothing to configure.
+
+To update by hand instead, from the install directory:
+
+```bash
+docker compose -p warmbly pull && docker compose -p warmbly up -d
+```
+
+To leave the button out entirely, delete the `updater` service from `docker-compose.yml` and set `UPDATER_URL=none` in `.env`.
+
+### Docker Compose from a clone
 
 `make up` starts the stack with the `updater` profile, so a stock install already has the button. For a plain `docker compose up`, put this in `.env`:
 
@@ -132,9 +160,9 @@ Updater:
 | Variable | What it does | Default |
 |---|---|---|
 | `UPDATER_TOKEN` | The token it accepts; falls back to `INTERNAL_API_TOKEN`. Refuses to start without one | unset |
-| `UPDATER_MODE` | `compose` rebuilds and recreates the compose project; `command` runs `UPDATER_COMMAND` | `compose` |
+| `UPDATER_MODE` | `image` pins a release tag and pulls; `compose` rebuilds a checkout; `command` runs `UPDATER_COMMAND` | `compose` |
 | `UPDATER_COMMAND` | The build-and-restart command for `command` mode | unset |
-| `UPDATER_REPO_DIR` | The checkout | working directory |
+| `UPDATER_REPO_DIR` | The checkout, or in image mode the install directory holding the compose file and `.env` | working directory |
 | `UPDATER_REMOTE` | The git remote to fetch and pull from | `origin` |
 | `UPDATER_COMPOSE_PROJECT` | The `-p` the stack was started with | `warmbly` |
 | `UPDATER_COMPOSE_PROFILES` | Extra profiles on every compose call, so its own image is rebuilt | `updater` |

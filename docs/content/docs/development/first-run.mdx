@@ -8,11 +8,17 @@ A fresh instance has no accounts and is described as **unclaimed**. Claiming it 
 ## Claim the instance
 
 ```bash
+curl -fsSL https://warmbly.com/install.sh | sh
+```
+
+The [installer](/development/install/) starts the stack and prints the claim link when it finishes. From a clone it is the same two steps and a build:
+
+```bash
 git clone https://github.com/warmbly/warmbly && cd warmbly
 make up
 ```
 
-`make up` builds the images, starts the stack, waits for the backend to answer, then runs `make claim`, which prints a single-use link and ends on the command that reissues it:
+Either way you end on `make claim` (or `warmblyctl setup-link`), which prints a single-use link and ends on the command that reissues it:
 
 ```
   No accounts exist yet. Open this link to claim the instance and

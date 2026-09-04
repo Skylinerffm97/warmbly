@@ -5,6 +5,15 @@ description: A step-by-step guide to running the whole Warmbly platform yourself
 
 Warmbly self-hosts with **no cloud account of any kind**: no AWS, no GCP, no Stripe, no Kafka. One `docker-compose.yml` runs everything on local, open-source pieces, and every external dependency is an environment variable you can flip later.
 
+<Callout title="Just want it running?">
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh
+```
+That pulls the published release images and skips everything on this page: no clone, no compiler, under two minutes. Add `--wizard` and it asks where your data lives, what is kept and for how long, and how it is backed up. See [Install](/development/install/).
+
+This page is the build-from-source path, and the reference for every setting either path writes. Take it when you want to run modified code, a platform we publish no image for, or a build you produced yourself.
+</Callout>
+
 Three commands give you a working install. Everything after them is optional, and nothing below is needed before you have seen it running.
 
 <Mermaid
@@ -740,8 +749,10 @@ CI publishes multi-arch images to `ghcr.io/<owner>/warmbly/`, which works on any
 
 | Trigger | Images | Tags |
 |---------|--------|------|
-| Push to `main` | backend, consumer, worker, tracking, realtime | `:<sha>`, `:dev` |
+| Push to `main` | backend, consumer, worker, forms, updater, tracking, realtime | `:<sha>`, `:dev` |
 | Tag `vX.Y.Z` | all of the above plus web and admin | `:vX.Y.Z`, `:vX.Y`, `:vX`, `:prod` |
+
+Every app service in `docker-compose.yml` carries both an `image:` and a `build:` key, so the same file serves both paths. `docker compose pull && docker compose up -d` runs the published images and compiles nothing; `docker compose up --build` still builds this checkout. Pin a release with `WARMBLY_TAG=v1.4.2` in `.env`, or point `WARMBLY_IMAGE_PREFIX` at your own registry.
 
 To move a worker fleet onto a new release, update `WORKER_IMAGE` and use "Pull latest and restart" on each worker. Control-plane migrations are forward-only, so prefer rolling forward over rolling back.
 
@@ -759,7 +770,16 @@ Upgrading is safe with data in place: migrations are forward-only and apply on b
 
 ### Backing up
 
-Back up three things. All three, or the backup is not a backup:
+One command writes all three of the things that only restore together:
+
+```bash
+docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
+```
+
+That bundle holds the database, the blob root and the encryption keys, and `warmblyctl restore` puts it back on another host, refusing to run when that host's keys are not the ones the bundle was sealed with. [Data control](/development/data-control/#backups) covers scheduling it and moving an instance.
+
+By hand, if you would rather assemble it yourself, it is these three and no fewer:
 
 ```bash
 docker compose -p warmbly exec -T postgres pg_dump -U warmbly warmbly_dev > backup.sql

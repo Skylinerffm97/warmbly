@@ -41,7 +41,8 @@ PROTO_GEN_FILES := $(PROTO_DIR)/tasks.pb.go
         up upgrade claim doctor cli seed-demo seed seed-plan sandbox sandbox-seed sandbox-simulate reset logs status stop down test-seed \
         restart restart-go restart-all infra infra-down app app-down app-logs \
         backend forms forms-web consumer worker run dev tracking realtime web \
-        admin site docs grant-admin revoke-admin gen-key db-reset db-wipe migrate
+        admin site docs grant-admin revoke-admin gen-key installer-sha installer-check installer-demo \
+        db-reset db-wipe migrate
 
 setup-tools:
 	@echo "Installing required Go tools into $(GO_BIN)"
@@ -663,6 +664,24 @@ run:
 # makes every stored mailbox credential unrecoverable).
 gen-key:
 	@openssl rand -base64 32
+
+# The one-command installer, served verbatim at https://warmbly.com/install.sh.
+# The published checksum is what makes "download, verify, read, run" a real
+# alternative to piping into a shell, so it is regenerated with the script and
+# CI fails when the two disagree.
+installer-sha:
+	@cd site/public && sha256sum install.sh > install.sh.sha256 && cat install.sh.sha256
+
+# Everything CI runs against the installer: POSIX parse, shellcheck, --help,
+# --print-env, a compose file per answer shape, and the checksum.
+installer-check:
+	@./scripts/check-installer.sh
+
+# Walk the installer's wizard without installing anything: the real questions,
+# the real review, and a played pull and start. Writes no file, pulls no image,
+# needs no Docker. This is the "what does it look like" target.
+installer-demo:
+	@sh site/public/install.sh --demo
 
 # ─── one-command dev stack ───────────────────────────────────────────────
 #

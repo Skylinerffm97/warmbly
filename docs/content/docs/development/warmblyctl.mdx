@@ -55,10 +55,12 @@ A command that would set a password refuses on a non-TTY unless you passed `--pa
 | `APP_URL` | every printed link and sign-in hint | Links are built against `https://app.warmbly.com`, which is the hosted service and not your instance |
 | `KMS_PROVIDER` and its key | `org export`, `org import` | The command stops: a workspace's sealed values cannot be opened, so an archive would be useless |
 | `CREDENTIALS_ENCRYPTION_KEY` | `org export`, `org import` | A warning, and mailbox credentials are neither read nor written. Everything else still moves |
+| `CREDENTIALS_ENCRYPTION_KEY`, `KMS_LOCAL_MASTER_KEY` | `backup`, `restore` | `backup` warns and leaves them out of the bundle. `restore` refuses when this host's differ from the bundle's |
+| `BLOB_FS_ROOT` | `backup`, `restore` | Defaults to `/data/blobs`, which is where the compose stack mounts it |
 | `WARMBLY_API_KEY` | every API command | The command stops and explains where a key comes from |
 | `WARMBLY_API_URL` | every API command | Falls back to the instance's own `API_PUBLIC_URL`, then the hosted service |
 
-Inside the backend container all of these are already set, except the API key, which is yours. Outside it, export what the command needs, and match `AUTH_SECRET` to the backend's exactly.
+`backup` and `restore` also need `pg_dump` and `psql`, which the backend image ships for exactly this reason. Inside the backend container all of these are already set, except the API key, which is yours. Outside it, export what the command needs, and match `AUTH_SECRET` to the backend's exactly.
 
 ## The operator commands
 
@@ -73,6 +75,8 @@ Inside the backend container all of these are already set, except the API key, w
 | [`user revoke-admin`](#user-revoke-admin) | Takes platform admin away from an account |
 | [`user disable-2fa`](#user-disable-2fa) | Clears an account's authenticator enrolment |
 | [`hash-password`](#hash-password) | Prints an argon2 hash for unattended provisioning |
+| [`backup`](#backup) | Writes the whole instance to one restorable bundle |
+| [`restore`](#restore) | Restores a bundle onto this instance, replacing everything on it |
 | [`org list`](#org-list) | Lists the workspaces on this instance with their id, owner, and size |
 | [`org export`](#org-export) | Writes a whole workspace to a portable archive file |
 | [`org import`](#org-import) | Applies an archive to a workspace on this instance |
@@ -282,6 +286,54 @@ It prompts when a terminal is attached and reads the pipe when one is not, so th
 An argon2 PHC string contains `$` characters. Docker Compose reads those as interpolation, so a bare hash in `.env` silently loses part of itself. Wrap it in single quotes there, and double every `$` if you paste it into `docker-compose.yml` directly.
 </Callout>
 
+## backup
+
+```bash
+docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
+```
+
+Writes one bundle holding the three things that only restore together: a `pg_dump` of the database, the blob root (message bodies, attachments, avatars), and the encryption keys.
+
+That combination is the whole reason this is a command rather than a documented list of steps. A dump alone restores an instance whose every mailbox credential decrypts to nothing, because the ciphertext is in the database and the key that opens it is in `.env`. The blob root alone restores bodies nothing points at.
+
+| Flag | Does |
+|---|---|
+| `--out` | Where to write it. Defaults to `warmbly-backup-<timestamp>.tar.gz` in the working directory |
+| `--no-keys` | Leaves the encryption keys out. The bundle is then not restorable on its own |
+| `--no-blobs` | Database only |
+| `--force` | Overwrite an existing output file |
+
+The bundle is written 0600 and holds every mailbox credential on the instance plus the keys that open them. Treat the file as you would the instance itself: encrypted at rest, off the host, and not in a shared drive.
+
+Blobs travel only on the filesystem provider. An instance storing them in S3 keeps them in the bucket, and the bundle says so rather than pretending to be complete.
+
+<Callout title="Schedule it">
+[`install.sh --wizard`](/development/install/) writes a `backup.sh` and a systemd timer that runs exactly this, keeps the last N bundles and can copy each one off the host.
+</Callout>
+
+## restore
+
+```bash
+docker compose -p warmbly exec backend warmblyctl restore --file /data/blobs/warmbly.tar.gz
+docker compose -p warmbly restart
+```
+
+Empties the schema and replays the bundle into it, so it replaces every organization, user, campaign and mailbox currently on the instance. It prints what the bundle holds and asks you to type `restore` before it does; `--yes` skips that for scripts.
+
+Before anything is written it compares the bundle's `CREDENTIALS_ENCRYPTION_KEY` and `KMS_LOCAL_MASTER_KEY` against this host's, and refuses to continue when they differ, printing the two lines to put in `.env` first. That check is the point of the command: without it a restore looks like it worked, and every mailbox fails to authenticate days later with no error that names the cause.
+
+| Flag | Does |
+|---|---|
+| `--file` | The bundle. Required |
+| `--yes` | Skip the typed confirmation |
+| `--no-blobs` | Restore the database only, leaving the blob root alone |
+| `--force` | Restore even though the keys differ. Accepts losing every stored mailbox credential |
+
+Blobs are unpacked over the blob root additively: files the bundle knows about are overwritten, anything else is left alone.
+
+[Data control](/development/data-control/#moving-an-instance) walks the whole move to a new host.
+
 ## org list
 
 ```bash
@@ -344,6 +396,8 @@ Run it with `--dry-run` first. The report is the same preflight the dashboard sh
 
 The whole import runs in one transaction: if any part fails, nothing lands and the workspace is untouched. Members are matched to accounts on this instance by email address, and anyone without one has their rows reassigned to the workspace owner, named in the report before you commit. An archive carries no password material, so it can never create an account here.
 
+`org export` and `org import` are the per-workspace tool and [`backup`](#backup) is the instance-level one. They are not interchangeable: a bundle cannot be applied to one workspace, and a workspace archive cannot restore an instance.
+
 Billing history, plan overrides, worker placement, mailbox sync checkpoints and warmup pool membership are exported for the record but never applied: each belongs to the instance rather than to the workspace. [Export and import](/guides/workspace-export-import/) has the full table.
 
 ## The API commands
@@ -405,7 +459,7 @@ Paths are relative to `/v1`. `--data` takes a JSON literal, `-` for stdin, or `@
 
 ### For AI agents
 
-The repository ships skills under `skills/` (`warmbly-api` for the product, `warmbly-ops` for instance administration) that teach a coding agent these commands, the conventions above, and the sending-safety rules. Install them the way your agent expects, for example `cp -r skills/warmbly-api ~/.claude/skills/` for Claude Code, or point the agent at the `SKILL.md` directly. An agent given a scoped key and those skills can operate a workspace end to end without touching the database.
+The repository ships skills under `skills/` (`warmbly-api` for the product, `warmbly-ops` for instance administration, `warmbly-install` for standing an instance up and moving it) that teach a coding agent these commands, the conventions above, and the sending-safety rules. Install them the way your agent expects, for example `cp -r skills/warmbly-api ~/.claude/skills/` for Claude Code, or point the agent at the `SKILL.md` directly. An agent given a scoped key and those skills can operate a workspace end to end without touching the database.
 
 ## When Redis is down
 

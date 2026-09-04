@@ -27,6 +27,9 @@ const (
 	docsSSO        = "/development/accounts-and-access/#single-sign-on"
 	docsFirstOwner = "/development/accounts-and-access/#first-owner"
 	docsUpdates    = "/development/updates/"
+	// The database-backed settings document, which is the one tier the
+	// environment does not own.
+	docsSettingsDoc = "/development/configuration/#settings-stored-in-the-database"
 )
 
 // table is the static inventory. Declaration order is display order.
@@ -507,6 +510,12 @@ var table = []Entry{
 		Effect:     "The name of the organization created alongside the first owner.",
 		DocsAnchor: docsFirstOwner,
 		Resolve:    envValue("WARMBLY_BOOTSTRAP_ORG"),
+	},
+	{
+		Key: "WARMBLY_SETTINGS_BOOTSTRAP", Group: GroupDeployment, RuntimeChangeable: ChangeBootOnly,
+		Effect:     "Seeds the database-backed settings document (sync budgets, retention windows) on an instance that has never saved one. A no-op from the first save in Instance settings onwards, so leaving it here cannot undo an edit made there.",
+		DocsAnchor: docsSettingsDoc,
+		Resolve:    envValue("WARMBLY_SETTINGS_BOOTSTRAP"),
 	},
 
 	// Captcha.

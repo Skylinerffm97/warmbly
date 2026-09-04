@@ -471,10 +471,23 @@ These are the only settings a browser can change, and no environment variable ow
 | `sync.backfill_messages` | integer, 1 to 100000 | `5000` | The most messages that import stores per mailbox |
 | `sync.daily_messages_per_mailbox` | integer, 1 to 100000 | `2000` | New (live) messages one mailbox may store per UTC day. Over it, mail waits for the next day; replies to the mailbox's own sends have a separate budget of the same size |
 | `sync.daily_messages_per_org` | integer, 1 to 2000000 | `25000` | New plus imported messages one organization may store per UTC day |
+| `retention.engagement_event_days` | integer, 1 to 3650 | `365` | How long the per-event open and click logs (client, device, approximate location) are kept. Campaign progress keeps its own summary that outlives them, so counts, filters and branching never change |
+| `retention.form_event_days` | integer, 1 to 3650 | `180` | How long form funnel events (views, starts, field-level drop-off) are kept. Funnel reports range up to 90 days, so anything shorter shortens the report too |
+| `retention.audit_log_days` | integer, 1 to 3650 | `90` | How long the audit trail is kept. It carries IP addresses, user agents and change payloads, so this is also how long that data is held |
 | `deliverability.enforce_domain_auth` | boolean | `true` | Whether a sending domain that fails SPF or DMARC stops cold campaign sending and warmup sending from every mailbox on it. Off keeps the check running and still shows the state and the Advisor card, it just never blocks |
 | `deliverability.auth_grace_hours` | integer, 1 to 720 | `72` | How long a domain must stay failing before the gate applies. The clock starts when the background check first sees the failure, so this is also how much warning the owner gets |
 
 The four `sync.*` values are read by the backend when a mailbox is loaded onto a worker (on connect, on reassignment, and by the reconciler's periodic republish), so a change reaches every mailbox within a few minutes without a restart. The fixed pacing numbers around them (burst per five minutes, hourly, backfill pace, the flood threshold and the chronic-overage rule) are compiled constants listed under **Instance > Limits**; see [Mailboxes](/guides/mailboxes/#what-gets-synced) for how the budgets behave.
+
+The three `retention.*` values are read by the pruning sweeps on every pass, so shortening one takes effect on the next sweep rather than at the next restart. Deletion is permanent and there is no grace period: what already sits outside a shortened window goes on that sweep. See [data control](/development/data-control/#what-is-kept-and-for-how-long) for what each log holds and what a shorter window costs.
+
+An unattended install can seed the whole document before anyone signs in, with `WARMBLY_SETTINGS_BOOTSTRAP` holding the same partial JSON the admin API takes:
+
+```bash
+WARMBLY_SETTINGS_BOOTSTRAP={"sync":{"backfill_days":30},"retention":{"audit_log_days":30}}
+```
+
+It is applied only while the settings row has never been written, so from the first save in the panel onwards the panel is authoritative and the variable is a no-op. That is what [`install.sh --wizard`](/development/install/) writes when you answer its retention questions.
 
 The two `deliverability.*` values are read on every scheduling pass and every warmup send, so turning the gate off releases blocked mailboxes within the 30 second cache window. Turning it back on does not stop anything retroactively: a domain still has to spend its whole grace window failing first. Only a sustained failure gates, so a domain reading `unknown` (never checked, DNS could not answer, or a special-use domain that cannot resolve) always sends. Manual sends and unibox replies are never gated; see [domain authentication](/guides/deliverability/#domain-authentication).
 
@@ -491,6 +504,8 @@ Changing them is audited, and every value is validated and clamped server side o
 
 ## See also
 
+- [Install](/development/install/) for the one-command install that writes all of this for you
+- [Data control](/development/data-control/) for where each store lives and what each retention window governs
 - [First run](/development/first-run/) for claiming a fresh instance
 - [Accounts and access](/development/accounts-and-access/) for who may sign in and how to invite people
 - [Instance health](/development/instance-health/) for the checks that read these values back

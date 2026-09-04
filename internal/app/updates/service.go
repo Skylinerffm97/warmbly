@@ -56,11 +56,14 @@ type UpdaterView struct {
 	// Configured is whether UPDATER_URL is set at all.
 	Configured bool `json:"configured"`
 	// Status is off (not configured), ok, or unreachable.
-	Status   string            `json:"status"`
-	Error    string            `json:"error,omitempty"`
-	Mode     updater.Mode      `json:"mode,omitempty"`
-	RepoDir  string            `json:"repo_dir,omitempty"`
+	Status  string       `json:"status"`
+	Error   string       `json:"error,omitempty"`
+	Mode    updater.Mode `json:"mode,omitempty"`
+	RepoDir string       `json:"repo_dir,omitempty"`
+	// Exactly one of these is set: a checkout in compose and command mode, a
+	// release in image mode (the clone-free install).
 	Checkout *updater.Checkout `json:"checkout,omitempty"`
+	Release  *updater.Release  `json:"release,omitempty"`
 	Job      *updater.Job      `json:"job,omitempty"`
 	LastJob  *updater.Job      `json:"last_job,omitempty"`
 }
@@ -84,7 +87,7 @@ type State struct {
 
 var (
 	ErrUpdaterNotConfigured = errors.New("no updater is configured on this instance")
-	ErrNothingToApply       = errors.New("the checkout is pinned to a tag and no release is known to move to")
+	ErrNothingToApply       = errors.New("this install is pinned to a version and no release is known to move to; run a check first")
 )
 
 type Service struct {
@@ -209,7 +212,12 @@ func (s *Service) Apply(ctx context.Context, target string) (*updater.Job, error
 	req := updater.UpdateRequest{}
 	switch strings.TrimSpace(target) {
 	case "", "latest", "branch":
-		if view.Checkout != nil && view.Checkout.Detached {
+		// A pinned install has nothing to move to on its own: an image install
+		// reads its tag from .env and a detached checkout is on a tag, so both
+		// need the release the check found naming the destination.
+		pinned := (view.Checkout != nil && view.Checkout.Detached) ||
+			(view.Mode == updater.ModeImage && (view.Release == nil || view.Release.Pinned))
+		if pinned {
 			s.mu.Lock()
 			latest := s.latest
 			s.mu.Unlock()
@@ -357,6 +365,7 @@ func (s *Service) updaterStatus(ctx context.Context, method, path string) Update
 	view.Mode = st.Mode
 	view.RepoDir = st.RepoDir
 	view.Checkout = st.Checkout
+	view.Release = st.Release
 	view.Job = st.Job
 	view.LastJob = st.LastJob
 	return view

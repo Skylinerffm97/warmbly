@@ -1,6 +1,10 @@
 // The updater is the host-side agent behind "Update and restart" in the admin
-// panel. It moves the checkout forward, rebuilds and restarts the stack, and
-// reports progress to the backend. See docs/content/docs/development/updates.mdx.
+// panel. It moves the install forward and restarts the stack, then reports
+// progress to the backend. UPDATER_MODE picks how: compose pulls a git
+// checkout and rebuilds it, image pins a release tag in the install's .env and
+// pulls the published images (the clone-free install.sh install), command
+// hands the rebuild to a script of your own.
+// See docs/content/docs/development/updates.mdx.
 package main
 
 import (
@@ -42,8 +46,10 @@ func main() {
 		AllowDirty:       boolean("UPDATER_ALLOW_DIRTY", false),
 		Version:          version.String(),
 	}
-	if cfg.Mode != updater.ModeCompose && cfg.Mode != updater.ModeCommand {
-		log.Fatalf("updater: UPDATER_MODE must be compose or command, got %q", cfg.Mode)
+	switch cfg.Mode {
+	case updater.ModeCompose, updater.ModeCommand, updater.ModeImage:
+	default:
+		log.Fatalf("updater: UPDATER_MODE must be compose, image or command, got %q", cfg.Mode)
 	}
 
 	runner, err := updater.NewRunner(cfg)
@@ -70,7 +76,7 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
-	log.Printf("updater: %s mode, checkout %s, listening on %s (version %s)", cfg.Mode, cfg.RepoDir, addr, cfg.Version)
+	log.Printf("updater: %s mode, install %s, listening on %s (version %s)", cfg.Mode, cfg.RepoDir, addr, cfg.Version)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("updater: %v", err)
 	}

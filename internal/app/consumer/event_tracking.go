@@ -12,6 +12,7 @@ import (
 	"github.com/mileusna/useragent"
 	"github.com/rs/zerolog/log"
 	"github.com/warmbly/warmbly/internal/app/advanced"
+	"github.com/warmbly/warmbly/internal/app/instancesettings"
 	"github.com/warmbly/warmbly/internal/config"
 	"github.com/warmbly/warmbly/internal/events"
 	"github.com/warmbly/warmbly/internal/infrastructure/codec"
@@ -49,8 +50,30 @@ type TrackingConsumer struct {
 	// location for opens and clicks. Both optional.
 	opens repository.EmailOpenRepository
 	geo   *geo.Client
-	topic string
-	group string
+	// retention is the operator-editable window the engagement prune obeys.
+	// Injected post-construction; nil keeps the compiled default.
+	retention RetentionSource
+	topic     string
+	group     string
+}
+
+// RetentionSource is the operator-editable retention section, satisfied by
+// instancesettings.Service. Read on every prune pass, so an edit in the admin
+// panel takes effect on the next sweep rather than at the next restart.
+type RetentionSource interface {
+	RetentionWindows(ctx context.Context) instancesettings.Retention
+}
+
+// WireRetention attaches the instance settings the engagement prune reads its
+// window from.
+func (tc *TrackingConsumer) WireRetention(src RetentionSource) { tc.retention = src }
+
+// engagementRetentionDays is the window the next prune pass uses.
+func (tc *TrackingConsumer) engagementRetentionDays(ctx context.Context) int {
+	if tc.retention == nil {
+		return config.EngagementEventRetentionDaysDefault
+	}
+	return tc.retention.RetentionWindows(ctx).EngagementEventDays
 }
 
 // NewTrackingConsumer wires the tracking consumer to the shared event bus.
@@ -154,15 +177,16 @@ func (tc *TrackingConsumer) pruneEngagementLogs(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		days := tc.engagementRetentionDays(pctx)
 		if tc.opens != nil {
-			if n, err := tc.opens.Cleanup(pctx, config.EngagementEventRetentionDays); err != nil {
+			if n, err := tc.opens.Cleanup(pctx, days); err != nil {
 				log.Warn().Err(err).Msg("open log prune failed")
 			} else if n > 0 {
 				log.Info().Int64("deleted", n).Msg("open log pruned")
 			}
 		}
 		if tc.linkClicks != nil {
-			if n, err := tc.linkClicks.Cleanup(pctx, config.EngagementEventRetentionDays); err != nil {
+			if n, err := tc.linkClicks.Cleanup(pctx, days); err != nil {
 				log.Warn().Err(err).Msg("click log prune failed")
 			} else if n > 0 {
 				log.Info().Int64("deleted", n).Msg("click log pruned")

@@ -34,7 +34,9 @@ func checkUpdateAvailable(ctx context.Context, d Deps, _ Input) *Finding {
 		msg = "A newer version is available. "
 	}
 	if st.Updater.Status == "ok" {
-		msg += "Open the version pill in the top bar and choose Update and restart; the stack rebuilds, restarts and resumes on its own."
+		msg += "Open the version pill in the top bar and choose Update and restart; the stack restarts and resumes on its own."
+	} else if st.Updater.Release != nil {
+		msg += "On the host, run docker compose pull && docker compose up -d in the install directory, or enable the updater to do it from this panel."
 	} else {
 		msg += "Run make upgrade on the host, or enable the updater to do it from this panel."
 	}

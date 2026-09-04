@@ -13,6 +13,10 @@ import (
 type Store interface {
 	Get(ctx context.Context) (Document, error)
 	Put(ctx context.Context, doc Document, updatedBy *uuid.UUID) error
+	// Exists reports whether the row has ever been written. Get cannot answer
+	// that: it resolves an absent row to the defaults, deliberately, so the
+	// invitation path never breaks on a missing row.
+	Exists(ctx context.Context) (bool, error)
 }
 
 type pgStore struct {
@@ -41,6 +45,18 @@ func (s *pgStore) Get(ctx context.Context) (Document, error) {
 	}
 	doc.Normalize()
 	return doc, nil
+}
+
+func (s *pgStore) Exists(ctx context.Context) (bool, error) {
+	var one int
+	err := s.db.QueryRow(ctx, `SELECT 1 FROM instance_settings WHERE id = true`).Scan(&one)
+	if err == pgx.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *pgStore) Put(ctx context.Context, doc Document, updatedBy *uuid.UUID) error {

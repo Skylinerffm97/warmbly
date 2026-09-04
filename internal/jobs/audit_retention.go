@@ -5,33 +5,42 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/warmbly/warmbly/internal/config"
 	"github.com/warmbly/warmbly/internal/repository"
 )
 
 // AuditRetentionJob deletes audit-log entries older than the retention window.
 // Bounding the trail's age also bounds how long PII (IP addresses, user agents,
-// change payloads) is retained, which is a privacy-positive property.
+// change payloads) is retained, which is a privacy-positive property. The
+// window is an instance setting, read on every pass.
 type AuditRetentionJob struct {
 	repo      repository.AuditRepository
-	retention time.Duration
+	retention RetentionSource
 }
 
-// NewAuditRetentionJob creates a retention job that prunes entries older than
-// the given retention window.
-func NewAuditRetentionJob(repo repository.AuditRepository, retention time.Duration) *AuditRetentionJob {
-	return &AuditRetentionJob{
-		repo:      repo,
-		retention: retention,
-	}
+// NewAuditRetentionJob creates a retention job for the audit trail. Without a
+// wired settings source it prunes at the compiled default window.
+func NewAuditRetentionJob(repo repository.AuditRepository) *AuditRetentionJob {
+	return &AuditRetentionJob{repo: repo}
+}
+
+// WireRetention attaches the instance settings the window is read from.
+func (j *AuditRetentionJob) WireRetention(src RetentionSource) *AuditRetentionJob {
+	j.retention = src
+	return j
 }
 
 // Run executes one pruning pass.
 func (j *AuditRetentionJob) Run(ctx context.Context) error {
-	if j.repo == nil || j.retention <= 0 {
+	if j.repo == nil {
 		return nil
 	}
+	days := config.AuditLogRetentionDaysDefault
+	if j.retention != nil {
+		days = j.retention.RetentionWindows(ctx).AuditLogDays
+	}
 
-	cutoff := time.Now().Add(-j.retention)
+	cutoff := time.Now().AddDate(0, 0, -days)
 	if _, err := j.repo.PruneOlderThan(ctx, cutoff); err != nil {
 		sentry.CaptureException(err)
 		return err

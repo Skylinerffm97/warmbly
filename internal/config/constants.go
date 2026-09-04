@@ -68,9 +68,9 @@ const (
 	SyncFloodPerHour                = 5_000 // new live messages observed in one hour that mark a mailbox as flooding
 	SyncThrottleEscalationDays      = 3     // throttled UTC days out of the last 7 that deactivate a mailbox
 
-	// Forms. Funnel events feed analytics ranges up to 90 days; the fixed
-	// retention window keeps double coverage without a per-org setting.
-	FormEventsRetentionDays = 180
+	// Forms. Funnel events feed analytics ranges up to 90 days, so the default
+	// window keeps double coverage. Operator-editable under Instance settings.
+	FormEventsRetentionDaysDefault = 180
 
 	// Sequences. Empty by default so the editor shows a smart, position-based
 	// label (e.g. "Email 1") until the user names the step themselves.
@@ -145,10 +145,24 @@ const (
 	// a scanner walking the message. A person follows one link at a time.
 	TrackingClickBurstSeconds = 5
 
-	// EngagementEventRetentionDays is how long the per-event open and click
-	// logs (client, device, location) are kept. The summary on the progress
-	// row outlives them, so counts and routing never change.
-	EngagementEventRetentionDays = 365
+	// EngagementEventRetentionDaysDefault is how long the per-event open and
+	// click logs (client, device, location) are kept. The summary on the
+	// progress row outlives them, so counts and routing never change.
+	// Operator-editable under Instance settings.
+	EngagementEventRetentionDaysDefault = 365
+
+	// AuditLogRetentionDaysDefault is how long the audit trail is kept. The
+	// trail carries IP addresses, user agents and change payloads, so this
+	// window is also how long that PII is held; a privacy-conscious operator
+	// shortens it under Instance settings.
+	AuditLogRetentionDaysDefault = 90
+
+	// Ten years is the ceiling every retention window shares. It is not a
+	// recommendation: it is the point past which "keep it" and "keep it
+	// forever" stop differing, and it bounds a typo. One day is the floor, so
+	// there is always a window in which an event can be read.
+	RetentionDaysMin = 1
+	RetentionDaysMax = 3650
 
 	// CampaignSendStampAttempts is how many times the control plane retries the
 	// sent_at stamp after a send is already on the bus. The reservation is what

@@ -115,6 +115,9 @@ func instanceSettingsAuditDetails(doc instancesettings.Document) map[string]any 
 		"sync_backfill_messages":             doc.Sync.BackfillMessages,
 		"sync_daily_messages_mailbox":        doc.Sync.DailyMessagesPerMailbox,
 		"sync_daily_messages_org":            doc.Sync.DailyMessagesPerOrg,
+		"retention_engagement_event_days":    doc.Retention.EngagementEventDays,
+		"retention_form_event_days":          doc.Retention.FormEventDays,
+		"retention_audit_log_days":           doc.Retention.AuditLogDays,
 		"deliverability_enforce_domain_auth": doc.Deliverability.EnforceDomainAuth,
 		"deliverability_auth_grace_hours":    doc.Deliverability.AuthGraceHours,
 	}
