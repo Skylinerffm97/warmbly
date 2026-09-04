@@ -401,6 +401,11 @@ function UpdaterNotice({ state }: { state: UpdateState }) {
     // the compose one. Which install this is comes from the release block, and
     // an unreachable updater reports neither block, so that case names both
     // rather than printing one command that may not work.
+    //
+    // A pinned install needs the tag edited first: pulling again resolves the
+    // same fixed version and updates nothing, which is the kind of instruction
+    // that looks like it worked.
+    const pinnedTag = u.release?.pinned ? (state.latest?.tag ?? "vX.Y.Z") : null;
     const byHand = u.release
         ? "docker compose pull && docker compose up -d"
         : u.checkout
@@ -411,6 +416,7 @@ function UpdaterNotice({ state }: { state: UpdateState }) {
             <Notice tone="warning">
                 <div className="font-medium text-foreground">The updater is not answering</div>
                 {u.error} Until it does, update by hand from the install directory:
+                {pinnedTag && <SetTagFirst tag={pinnedTag} />}
                 {byHand ? <Cmd>{byHand}</Cmd> : <BothCommands />}
             </Notice>
         );
@@ -419,10 +425,26 @@ function UpdaterNotice({ state }: { state: UpdateState }) {
         <Notice tone="info">
             <div className="font-medium text-foreground">This panel can only report</div>
             No updater is configured, so apply updates from a shell on the host:
+            {pinnedTag && <SetTagFirst tag={pinnedTag} />}
             {byHand ? <Cmd>{byHand}</Cmd> : <BothCommands />}
             To get the button, enable the updater compose profile (`make up` and the installer
             both do) or run the updater unit on a bare-metal host.
         </Notice>
+    );
+}
+
+// An image install pinned to a fixed version resolves the same images on every
+// pull, so moving it is an edit to .env and then the pull. Without this the
+// command below reports success and changes nothing.
+function SetTagFirst({ tag }: { tag: string }) {
+    return (
+        <>
+            <div className="mt-1.5 text-xs">
+                This install is pinned, so set the release in <code>.env</code> first:
+            </div>
+            <Cmd>{`WARMBLY_TAG=${tag}`}</Cmd>
+            <div className="text-xs">then:</div>
+        </>
     );
 }
 

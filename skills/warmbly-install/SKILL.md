@@ -108,14 +108,15 @@ instance that looks fine and cannot read its own mailboxes.
 ```bash
 cd /opt/warmbly
 docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
-docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
-docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz \
+  && docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
 
 `/data/blobs` is used as the hand-off because it is the one path the container
 and the host both see. Delete it there afterwards, as above: `backup` leaves
 its own output out of the archive, but a bundle left in the blob root is swept
-into the next one. The bundle is 0600 and holds every mailbox credential on the
+into the next one. Keep the `&&`: an unguarded cleanup after a failed `cp`
+deletes the only copy of the backup. The bundle is 0600 and holds every mailbox credential on the
 instance plus the keys that open them; never write it somewhere world-readable
 and never print its contents.
 

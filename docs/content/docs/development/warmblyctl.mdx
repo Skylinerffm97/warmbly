@@ -290,11 +290,11 @@ An argon2 PHC string contains `$` characters. Docker Compose reads those as inte
 
 ```bash
 docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
-docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
-docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz \
+  && docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
 
-`/data/blobs` is the one path the container and the host both see, so it is the hand-off. Move the bundle out and delete it: `backup` excludes its own output from the archive, but a bundle left behind is swept into the next one.
+`/data/blobs` is the one path the container and the host both see, so it is the hand-off. Move the bundle out and delete it: `backup` excludes its own output from the archive, but a bundle left behind is swept into the next one. The delete is chained with `&&` so a failed copy cannot take the only copy with it.
 
 Writes one bundle holding the three things that only restore together: a `pg_dump` of the database, the blob root (message bodies, attachments, avatars), and the encryption keys.
 

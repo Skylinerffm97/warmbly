@@ -110,11 +110,11 @@ It is read only while the settings row has never been written. From the first sa
 
 ```bash
 docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
-docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz
-docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz \
+  && docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
 ```
 
-`/data/blobs` is a hand-off, not a destination: it is the one path the container and the host both see. The third line matters. `backup` leaves its own output out of the archive, but a bundle left there is backed up by the next run, so move it out and delete it.
+`/data/blobs` is a hand-off, not a destination: it is the one path the container and the host both see. The `&&` matters twice over. `backup` leaves its own output out of the archive, but a bundle left there is swept into the next run, so it has to be deleted; and a `cp` that failed must not be followed by deleting the only copy that exists.
 
 The bundle is written 0600 and holds every mailbox credential on the instance plus the keys that open them. Treat the file as you would the instance itself.
 
