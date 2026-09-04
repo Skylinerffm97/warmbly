@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: "Service to build (all, backend, consumer, worker, forms, tracking, realtime)"
+        description: "Service to build (all, backend, consumer, worker, forms, updater, tracking, realtime)"
         required: false
         default: "all"
 
@@ -61,6 +61,15 @@ jobs:
               - 'cmd/forms/**'
               - 'forms/**'
               - 'deploy/docker/forms.Dockerfile'
+            updater:
+              - 'go.mod'
+              - 'go.sum'
+              # internal/** and not internal/updater/**: the binary links
+              # internal/version and whatever else it grows, and an image that
+              # silently skips a rebuild is worse than one rebuilt too often.
+              - 'internal/**'
+              - 'cmd/updater/**'
+              - 'deploy/docker/updater.Dockerfile'
             tracking:
               - 'tracking/**'
             realtime:
@@ -75,6 +84,7 @@ jobs:
           CONSUMER: ${{ steps.filter.outputs.consumer }}
           WORKER: ${{ steps.filter.outputs.worker }}
           FORMS: ${{ steps.filter.outputs.forms }}
+          UPDATER: ${{ steps.filter.outputs.updater }}
           TRACKING: ${{ steps.filter.outputs.tracking }}
           REALTIME: ${{ steps.filter.outputs.realtime }}
         run: |
@@ -82,7 +92,7 @@ jobs:
           native=""
           if [ "$EVENT" = "workflow_dispatch" ]; then
             sel="${SELECTED:-all}"
-            for s in backend consumer worker forms; do
+            for s in backend consumer worker forms updater; do
               if [ "$sel" = "all" ] || [ "$sel" = "$s" ]; then go="$go\"$s\","; fi
             done
             for s in tracking realtime; do
@@ -93,6 +103,7 @@ jobs:
             if [ "$CONSUMER" = "true" ]; then go="$go\"consumer\","; fi
             if [ "$WORKER" = "true" ]; then go="$go\"worker\","; fi
             if [ "$FORMS" = "true" ]; then go="$go\"forms\","; fi
+            if [ "$UPDATER" = "true" ]; then go="$go\"updater\","; fi
             if [ "$TRACKING" = "true" ]; then native="$native\"tracking\","; fi
             if [ "$REALTIME" = "true" ]; then native="$native\"realtime\","; fi
           fi

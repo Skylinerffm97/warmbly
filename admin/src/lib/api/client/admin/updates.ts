@@ -29,6 +29,16 @@ export interface UpdaterCheckout {
     fetch_error?: string;
 }
 
+// An image install has no checkout: what it runs is the tag pinned in its
+// .env, which the updater reports instead.
+export interface UpdaterRelease {
+    tag: string;
+    prefix: string;
+    // False for a moving channel tag (prod, dev), where re-pulling the same
+    // name is itself an update.
+    pinned: boolean;
+}
+
 export type UpdateJobStatus = "running" | "succeeded" | "failed";
 
 export interface UpdateJob {
@@ -51,9 +61,12 @@ export interface UpdaterView {
     configured: boolean;
     status: UpdaterStatus;
     error?: string;
-    mode?: "compose" | "command";
+    mode?: "compose" | "image" | "command";
     repo_dir?: string;
+    // Exactly one of these: a checkout in compose and command mode, a release
+    // in image mode.
     checkout?: UpdaterCheckout;
+    release?: UpdaterRelease;
     job?: UpdateJob;
     last_job?: UpdateJob;
 }

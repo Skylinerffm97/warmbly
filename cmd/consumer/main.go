@@ -23,6 +23,7 @@ import (
 	"github.com/warmbly/warmbly/internal/app/creditwatch"
 	"github.com/warmbly/warmbly/internal/app/feature"
 	"github.com/warmbly/warmbly/internal/app/inboxagent"
+	"github.com/warmbly/warmbly/internal/app/instancesettings"
 	"github.com/warmbly/warmbly/internal/app/integration"
 	"github.com/warmbly/warmbly/internal/app/nativeactions"
 	"github.com/warmbly/warmbly/internal/app/notification"
@@ -499,6 +500,9 @@ func main() {
 	); terr != nil {
 		log.Println("tracking consumer unavailable; opens/clicks not consumed:", terr)
 	} else {
+		// The engagement prune reads its window from the instance settings on
+		// every pass, so shortening it in the admin panel needs no restart.
+		trackingConsumer.WireRetention(instancesettings.NewService(instancesettings.NewStore(primaryDB.Pool)))
 		defer trackingConsumer.Close()
 		go func() {
 			if err := trackingConsumer.Start(ctx); err != nil {

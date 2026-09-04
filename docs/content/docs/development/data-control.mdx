@@ -1,0 +1,214 @@
+---
+title: Data control
+description: Where every store lives on disk, what each retention window governs, how backups work, and how to move an instance to another host.
+---
+
+Self-hosting Warmbly means holding mailbox credentials, message bodies and contact records on your own disk. This page is the whole answer to where that data is, how long it stays, and how you get it off this machine.
+
+Three questions, and they have different answers:
+
+| Question | Answer |
+|---|---|
+| Where is it? | [Six stores](#where-the-data-sits), each pointed at by one variable |
+| How long does it stay? | [Retention windows](#what-is-kept-and-for-how-long), all editable in the admin panel |
+| How do I move it? | [`warmblyctl backup`](#backups) for the instance, [workspace export](/guides/workspace-export-import/) for one workspace |
+
+## Where the data sits
+
+Every store's location is one variable in `.env`. Compose reads a source starting with `/` as a bind mount and anything else as a named volume, so the same variable covers both and there is no second compose file.
+
+| Variable | Holds | Default |
+|---|---|---|
+| `WARMBLY_PG_DATA` | Postgres: organizations, users, mailboxes (credentials sealed), contacts, campaigns, the audit trail | `<data root>/postgres` |
+| `WARMBLY_BLOBS` | Message bodies, attachments, avatars and logos | `<data root>/blobs` |
+| `WARMBLY_NATS_DATA` | The event bus's JetStream state | `<data root>/nats` |
+| `WARMBLY_REDIS_DATA` | Cache and rate-limit counters. Disposable | `<data root>/redis` |
+| `WARMBLY_WORKER_STATE` | A worker's own id and sync cursors. Disposable | `<data root>/worker` |
+| `WARMBLY_UPDATER_STATE` | The last update job's log. Disposable | `<data root>/updater` |
+
+An [install from `install.sh`](/development/install/) points all six under one data root, so `/opt/warmbly/data` is the whole of it and you can `rsync` that path. A clone-and-build install keeps Docker named volumes unless you set the same variables.
+
+Only the first two carry anything you cannot rebuild. The other four are state a fresh container reconstructs, which is why a backup does not include them.
+
+### Encryption
+
+Two keys, and they are not interchangeable.
+
+| Key | Opens | Read by |
+|---|---|---|
+| `CREDENTIALS_ENCRYPTION_KEY` | Mailbox SMTP and IMAP credentials | Backend and workers, without an organization context |
+| `KMS_LOCAL_MASTER_KEY` | The per-organization data keys, which in turn open everything else | Backend and consumer |
+
+Both are unrecoverable. A database backup without them restores an instance whose mailboxes authenticate against nothing, and there is no way back from that. They are in `.env`, and `install.sh` also writes them to `keys-backup.txt` next to the install, which is on the same disk as the database and therefore not a backup either. Copy them somewhere else.
+
+### External stores
+
+Postgres, Redis and blob storage each accept an external target, set at install time or by editing `.env`:
+
+```bash
+PRIMARY_DB=postgres://user:pass@db.internal:5432/warmbly?sslmode=require
+REDIS=redis://cache.internal:6379
+BLOB_PROVIDER=s3
+BLOB_BUCKET=warmbly
+AWS_ENDPOINT_URL_S3=https://<account>.r2.cloudflarestorage.com
+```
+
+<Callout type="warn" title="Filesystem blobs stop working when workers run off-host">
+A remote worker writes bodies to its own disk, so the dashboard on the control-plane host finds nothing. Any deployment with workers on more than one machine needs S3-compatible blob storage. This is the one storage choice that is not just a preference.
+</Callout>
+
+## What is kept, and for how long
+
+Every window below lives in the database, not the environment, and is edited under **Instance > Instance settings** in the admin panel. A sweep runs a few times a day and reads the current value on every pass, so a change takes effect without a restart.
+
+### Mailbox import and sync
+
+| Setting | Default | Range | What it governs |
+|---|---|---|---|
+| `sync.backfill_days` | 90 | 1 to 730 | How far back the initial import reaches when a mailbox is connected, newest first |
+| `sync.backfill_messages` | 5,000 | 1 to 100,000 | The most messages that import stores per mailbox |
+| `sync.daily_messages_per_mailbox` | 2,000 | 1 to 100,000 | New mail one mailbox may store per UTC day |
+| `sync.daily_messages_per_org` | 25,000 | 1 to 2,000,000 | New plus imported mail across one workspace per UTC day |
+
+Mail over a daily budget is deferred, never dropped: the provider cursor is held and the mail is re-offered on the next pass. Replies to the mailbox's own outreach ride a separate budget of the same size and keep landing regardless.
+
+### Event history
+
+| Setting | Default | What it holds |
+|---|---|---|
+| `retention.engagement_event_days` | 365 | Per-event open and click logs: client, device, approximate location |
+| `retention.form_event_days` | 180 | Form funnel events: views, starts, field-level drop-off |
+| `retention.audit_log_days` | 90 | The audit trail: actor, IP address, user agent, change payload |
+
+Each is between 1 and 3,650 days. These are the three settings a retention or privacy policy applies to, because each window is also how long the personal data in that log is held.
+
+None of them change a number anyone reads. Campaign progress keeps its own summary of opens and clicks that outlives the per-event log, so counts, filters and branching are unaffected by shortening any of these. What gets shorter is what a contact's timeline can show, how far a funnel report reaches, and how far back an admin can audit.
+
+<Callout type="warn" title="Shortening a window deletes on the next sweep">
+There is no grace period and no copy. Take a backup first if you are not sure.
+</Callout>
+
+The **minimal retention** preset in the admin panel and in the installer sets all three to 30 days.
+
+### Set them at install time
+
+The installer writes the answers into `.env` as one document, applied on the first boot of a fresh database:
+
+```bash
+WARMBLY_SETTINGS_BOOTSTRAP={"sync":{"backfill_days":30},"retention":{"audit_log_days":30}}
+```
+
+It is read only while the settings row has never been written. From the first save in the admin panel onwards the panel is authoritative, so leaving the line in `.env` never undoes a later edit.
+
+## Backups
+
+`warmblyctl backup` writes one bundle holding the three things that only restore together:
+
+- the database, as a `pg_dump`
+- the blob root, when blobs are on the filesystem
+- the encryption keys, unless you pass `--no-keys`
+
+```bash
+docker compose -p warmbly exec backend warmblyctl backup --out /data/blobs/warmbly.tar.gz
+docker compose -p warmbly cp backend:/data/blobs/warmbly.tar.gz ./warmbly.tar.gz \
+  && docker compose -p warmbly exec -T backend rm -f /data/blobs/warmbly.tar.gz
+```
+
+`/data/blobs` is a hand-off, not a destination: it is the one path the container and the host both see. The `&&` matters twice over. `backup` leaves its own output out of the archive, but a bundle left there is swept into the next run, so it has to be deleted; and a `cp` that failed must not be followed by deleting the only copy that exists.
+
+The bundle is written 0600 and holds every mailbox credential on the instance plus the keys that open them. Treat the file as you would the instance itself.
+
+An install from `install.sh --wizard` can schedule this for you: `backup.sh` next to the install, a systemd timer, a retention count, and an optional `aws s3 cp` to somewhere off the host. A backup that only exists on the machine it backs up is not one.
+
+### Restore
+
+On the destination host, with the same keys in place:
+
+```bash
+docker compose -p warmbly exec backend warmblyctl restore --file /data/blobs/warmbly.tar.gz
+docker compose -p warmbly restart
+```
+
+The restore empties the schema and replays the dump, so it replaces everything currently on that instance and asks you to type `restore` first.
+
+Before it does anything it compares the bundle's `CREDENTIALS_ENCRYPTION_KEY` and `KMS_LOCAL_MASTER_KEY` against the destination's and refuses to continue when they differ, printing the two lines to put in `.env`. That check is the point of the command: without it a restore looks like it worked and every mailbox fails to authenticate days later, with no error that names the cause.
+
+## Moving an instance
+
+Two ways, and they answer different questions.
+
+### The whole instance, to a new host
+
+Every workspace, every user, the platform admins, the API keys.
+
+<Steps>
+
+<Step>
+
+### Install Warmbly on the new host
+
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh -s -- --host <new-hostname>
+```
+
+</Step>
+
+<Step>
+
+### Put the old keys in the new `.env`
+
+Copy `CREDENTIALS_ENCRYPTION_KEY` and `KMS_LOCAL_MASTER_KEY` from the old install, then recreate the containers so they take:
+
+```bash
+docker compose -p warmbly up -d
+```
+
+</Step>
+
+<Step>
+
+### Restore the bundle
+
+```bash
+docker compose -p warmbly exec backend warmblyctl restore --file /data/blobs/warmbly.tar.gz
+docker compose -p warmbly restart
+```
+
+</Step>
+
+<Step>
+
+### Check it
+
+```bash
+docker compose -p warmbly exec backend warmblyctl status
+```
+
+Mailboxes should be connected, not needing a reconnect. If they need one, the keys did not match.
+
+</Step>
+
+</Steps>
+
+The `rsync` alternative works too and is sometimes simpler, as long as the stack is **stopped** first: a running Postgres data directory copied file by file is not a consistent snapshot and can restore as a corrupt cluster. Stop it, copy the data root and the `.env` to the new host, start it there. It moves the same bytes; the bundle exists because it is the version that survives a different host layout, a different Postgres, a live instance, and a partial copy.
+
+### One workspace, to another instance
+
+[Workspace export and import](/guides/workspace-export-import/) moves a single organization's data between two running instances, re-sealing its secrets for the destination's keys. That is the per-customer tool; the bundle here is the instance-level one. They are not interchangeable: a bundle cannot be applied to one workspace, and a workspace archive cannot restore an instance.
+
+## Outbound calls
+
+A self-hosted Warmbly makes no outbound call of its own except one, and it is off with a single setting.
+
+| Call | When | Turn it off |
+|---|---|---|
+| GitHub releases API | Every 30 minutes, to tell the admin panel a newer version exists | `UPDATE_CHECK_ENABLED=false` |
+
+Everything else is you: mail through the mailboxes you connect, DNS lookups for the domains you check, and whatever integrations you configure. There is no telemetry, no phone-home, and no license check.
+
+## See also
+
+- [Install](/development/install/): the wizard that asks all of this up front
+- [Configuration](/development/configuration/): every variable and every database-backed setting
+- [warmblyctl](/development/warmblyctl/): `backup`, `restore`, and the operator commands
+- [Workspace export and import](/guides/workspace-export-import/): the per-workspace story

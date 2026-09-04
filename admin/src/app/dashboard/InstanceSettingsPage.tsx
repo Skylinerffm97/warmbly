@@ -76,11 +76,57 @@ const SYNC_FIELDS = [
 
 type SyncFieldKey = (typeof SYNC_FIELDS)[number]["key"];
 
+// Retention windows, mirroring internal/config/constants.go. Each one is also
+// how long the personal data in that log is held, so the help text says what
+// the data is rather than only what the number does.
+const RETENTION_MIN_DAYS = 1;
+const RETENTION_MAX_DAYS = 3650;
+
+const RETENTION_FIELDS = [
+    {
+        key: "engagementDays",
+        setting: "engagement_event_days",
+        label: "Opens and clicks (days)",
+        help: "Per-event open and click logs, with the client, device and approximate location of each. Campaign counts and routing read a separate summary that is never pruned, so shortening this changes what a contact's timeline can show, not what a campaign does.",
+    },
+    {
+        key: "formDays",
+        setting: "form_event_days",
+        label: "Form funnel events (days)",
+        help: "Views, starts, field-level drop-off and submissions for hosted forms. Funnel reports range up to 90 days, so anything below that shortens the report too. Submitted contacts are unaffected.",
+    },
+    {
+        key: "auditDays",
+        setting: "audit_log_days",
+        label: "Audit log (days)",
+        help: "Who did what, from which IP address and user agent, with the change payload. This window is how long that record is held, and it is the one most likely to be set by a retention policy.",
+    },
+] as const;
+
+type RetentionFieldKey = (typeof RETENTION_FIELDS)[number]["key"];
+
+// The two presets are the ends of the band people actually choose between.
+const RETENTION_PRESETS = [
+    {
+        id: "default",
+        label: "Defaults",
+        description: "365 / 180 / 90 days",
+        values: { engagementDays: "365", formDays: "180", auditDays: "90" },
+    },
+    {
+        id: "minimal",
+        label: "Minimal retention",
+        description: "30 / 30 / 30 days",
+        values: { engagementDays: "30", formDays: "30", auditDays: "30" },
+    },
+] as const;
+
 interface FormState {
     linksEnabled: boolean;
     ttlHours: string;
     allowInvitedSignup: boolean;
     sync: Record<SyncFieldKey, string>;
+    retention: Record<RetentionFieldKey, string>;
     enforceDomainAuth: boolean;
     authGraceHours: string;
 }
@@ -95,6 +141,11 @@ function toForm(s: InstanceSettings): FormState {
             backfillMessages: String(s.sync.backfill_messages),
             dailyPerMailbox: String(s.sync.daily_messages_per_mailbox),
             dailyPerOrg: String(s.sync.daily_messages_per_org),
+        },
+        retention: {
+            engagementDays: String(s.retention.engagement_event_days),
+            formDays: String(s.retention.form_event_days),
+            auditDays: String(s.retention.audit_log_days),
         },
         enforceDomainAuth: s.deliverability.enforce_domain_auth,
         authGraceHours: String(s.deliverability.auth_grace_hours),
@@ -137,6 +188,12 @@ export default function InstanceSettingsPage() {
         !!server &&
         !!form &&
         SYNC_FIELDS.some((f) => form.sync[f.key] !== String(server.sync[f.setting]));
+    const retentionDirty =
+        !!server &&
+        !!form &&
+        RETENTION_FIELDS.some(
+            (f) => form.retention[f.key] !== String(server.retention[f.setting]),
+        );
     const dirty =
         !!server &&
         !!form &&
@@ -145,9 +202,15 @@ export default function InstanceSettingsPage() {
             form.allowInvitedSignup !== server.access.allow_invited_signup ||
             form.enforceDomainAuth !== server.deliverability.enforce_domain_auth ||
             form.authGraceHours !== String(server.deliverability.auth_grace_hours) ||
+            retentionDirty ||
             syncDirty);
     const syncValid =
         form !== null && SYNC_FIELDS.every((f) => syncFieldValid(form.sync[f.key], f.min, f.max));
+    const retentionValid =
+        form !== null &&
+        RETENTION_FIELDS.every((f) =>
+            syncFieldValid(form.retention[f.key], RETENTION_MIN_DAYS, RETENTION_MAX_DAYS),
+        );
 
     const authGrace = form ? Number(form.authGraceHours) : NaN;
     const authGraceValid =
@@ -177,6 +240,12 @@ export default function InstanceSettingsPage() {
             toast.error("Every sync budget must be a whole number inside its range");
             return;
         }
+        if (!retentionValid) {
+            toast.error(
+                `Every retention window must be a whole number of days between ${RETENTION_MIN_DAYS} and ${RETENTION_MAX_DAYS.toLocaleString()}`,
+            );
+            return;
+        }
         if (!authGraceValid) {
             toast.error(
                 `The authentication grace period must be a whole number of hours between ${AUTH_GRACE_MIN_HOURS} and ${AUTH_GRACE_MAX_HOURS}`,
@@ -191,6 +260,11 @@ export default function InstanceSettingsPage() {
                 backfill_messages: Number(form.sync.backfillMessages),
                 daily_messages_per_mailbox: Number(form.sync.dailyPerMailbox),
                 daily_messages_per_org: Number(form.sync.dailyPerOrg),
+            },
+            retention: {
+                engagement_event_days: Number(form.retention.engagementDays),
+                form_event_days: Number(form.retention.formDays),
+                audit_log_days: Number(form.retention.auditDays),
             },
             deliverability: {
                 enforce_domain_auth: form.enforceDomainAuth,
@@ -367,6 +441,93 @@ export default function InstanceSettingsPage() {
                                     </div>
                                 );
                             })}
+                        </CardContent>
+                    </Card>
+
+                    <Card className="lg:col-span-2">
+                        <CardHeader>
+                            <CardTitle>Data retention</CardTitle>
+                            <CardDescription>
+                                How long event-level history is kept on this instance. Every window
+                                below is also how long the personal data in that log is held, so
+                                these are the settings a retention or privacy policy applies to. A
+                                sweep runs a few times a day and reads these values each pass, so a
+                                change takes effect without a restart. Deletion is permanent:
+                                shortening a window removes what already sits outside it on the
+                                next sweep.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4 pt-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Presets</span>
+                                {RETENTION_PRESETS.map((preset) => {
+                                    const active = RETENTION_FIELDS.every(
+                                        (f) => form.retention[f.key] === preset.values[f.key],
+                                    );
+                                    return (
+                                        <Button
+                                            key={preset.id}
+                                            type="button"
+                                            size="sm"
+                                            variant={active ? "default" : "outline"}
+                                            onClick={() =>
+                                                setForm({
+                                                    ...form,
+                                                    retention: { ...preset.values },
+                                                })
+                                            }
+                                        >
+                                            {preset.label}
+                                            <span className="ml-1.5 text-[11px] opacity-70">
+                                                {preset.description}
+                                            </span>
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                {RETENTION_FIELDS.map((f) => {
+                                    const valid = syncFieldValid(
+                                        form.retention[f.key],
+                                        RETENTION_MIN_DAYS,
+                                        RETENTION_MAX_DAYS,
+                                    );
+                                    return (
+                                        <div key={f.key}>
+                                            <Label htmlFor={`retention-${f.key}`}>{f.label}</Label>
+                                            <Input
+                                                id={`retention-${f.key}`}
+                                                type="text"
+                                                inputMode="numeric"
+                                                autoComplete="off"
+                                                value={form.retention[f.key]}
+                                                onChange={(e) =>
+                                                    setForm({
+                                                        ...form,
+                                                        retention: {
+                                                            ...form.retention,
+                                                            [f.key]: e.target.value,
+                                                        },
+                                                    })
+                                                }
+                                                aria-invalid={!valid}
+                                                className="mt-1"
+                                            />
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                {f.help} Between {RETENTION_MIN_DAYS} and{" "}
+                                                {RETENTION_MAX_DAYS.toLocaleString()} days.
+                                            </p>
+                                            {!valid && (
+                                                <p className="mt-1 text-xs text-red-600">
+                                                    Enter a whole number of days between{" "}
+                                                    {RETENTION_MIN_DAYS} and{" "}
+                                                    {RETENTION_MAX_DAYS.toLocaleString()}.
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </CardContent>
                     </Card>
 

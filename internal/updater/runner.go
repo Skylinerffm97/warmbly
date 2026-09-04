@@ -66,7 +66,13 @@ func NewRunner(cfg Config) (*Runner, error) {
 	if cfg.RepoDir == "" {
 		return nil, errors.New("UPDATER_REPO_DIR is required")
 	}
-	if _, err := os.Stat(filepath.Join(cfg.RepoDir, ".git")); err != nil {
+	if cfg.Mode == ModeImage {
+		// The clone-free install has no checkout to inspect; what it must have
+		// is the compose file the pull and the recreate address.
+		if _, ok := composeFile(cfg.RepoDir); !ok {
+			return nil, fmt.Errorf("%s holds no compose file; UPDATER_MODE=image needs the install directory", cfg.RepoDir)
+		}
+	} else if _, err := os.Stat(filepath.Join(cfg.RepoDir, ".git")); err != nil {
 		return nil, fmt.Errorf("%s is not a git checkout: %w", cfg.RepoDir, err)
 	}
 	if cfg.Mode == ModeCommand && strings.TrimSpace(cfg.Command) == "" {
@@ -103,8 +109,13 @@ func (r *Runner) Start(ctx context.Context) {
 	}()
 }
 
-// Refresh fetches the remote and re-reads the checkout.
+// Refresh fetches the remote and re-reads the checkout. In image mode there is
+// nothing to fetch: what a release exists is the backend's GitHub check, and
+// what is installed is one line of .env, read live in Status.
 func (r *Runner) Refresh(ctx context.Context) *Checkout {
+	if r.cfg.Mode == ModeImage {
+		return nil
+	}
 	fetchErr := r.git.fetch(ctx)
 	c, err := r.git.inspect(ctx)
 	if err != nil {
@@ -129,6 +140,17 @@ func (r *Runner) Status(ctx context.Context) Status {
 	job := cloneJob(r.job)
 	last := cloneJob(r.lastJob)
 	r.mu.Unlock()
+
+	if r.cfg.Mode == ModeImage {
+		return Status{
+			Mode:    r.cfg.Mode,
+			RepoDir: r.cfg.RepoDir,
+			Version: r.cfg.Version,
+			Release: r.releaseState(),
+			Job:     job,
+			LastJob: last,
+		}
+	}
 
 	c, err := r.git.inspect(ctx)
 	if err == nil && prev != nil {
@@ -157,7 +179,12 @@ func (r *Runner) StartUpdate(req UpdateRequest) (*Job, error) {
 	}
 	target := strings.TrimSpace(req.Tag)
 	if target == "" {
+		// What "no tag" means differs per mode, and the job label is what the
+		// admin panel shows while it runs.
 		target = "branch"
+		if r.cfg.Mode == ModeImage {
+			target = r.readTag()
+		}
 	}
 	job := &Job{
 		ID:        uuid.NewString(),
@@ -202,7 +229,7 @@ func (r *Runner) execute(ctx context.Context, job *Job, req UpdateRequest) {
 	r.mu.Unlock()
 	r.saveState()
 
-	if err == nil && r.cfg.Mode == ModeCompose {
+	if err == nil && (r.cfg.Mode == ModeCompose || r.cfg.Mode == ModeImage) {
 		// Last, because it may replace this very process: the outcome above is
 		// already on disk for the successor to report.
 		r.recreateSelf(ctx, job)
@@ -210,6 +237,13 @@ func (r *Runner) execute(ctx context.Context, job *Job, req UpdateRequest) {
 }
 
 func (r *Runner) runSteps(ctx context.Context, job *Job, req UpdateRequest) error {
+	if r.cfg.Mode == ModeImage {
+		if err := r.imageUpdate(ctx, job, strings.TrimSpace(req.Tag)); err != nil {
+			return err
+		}
+		return r.waitForBackend(ctx, job)
+	}
+
 	from, err := r.git.head(ctx)
 	if err != nil {
 		return err
@@ -278,14 +312,21 @@ func (r *Runner) runSteps(ctx context.Context, job *Job, req UpdateRequest) erro
 		}
 	}
 
-	if r.cfg.BackendHealthURL != "" {
-		r.step(job, "wait")
-		r.logf(job, "waiting for the backend at %s", r.cfg.BackendHealthURL)
-		if err := waitHealthy(ctx, r.cfg.BackendHealthURL, healthWait); err != nil {
-			return err
-		}
-		r.logf(job, "backend is answering")
+	return r.waitForBackend(ctx, job)
+}
+
+// waitForBackend is the last step of every mode: the update is only finished
+// once the API answers again.
+func (r *Runner) waitForBackend(ctx context.Context, job *Job) error {
+	if r.cfg.BackendHealthURL == "" {
+		return nil
 	}
+	r.step(job, "wait")
+	r.logf(job, "waiting for the backend at %s", r.cfg.BackendHealthURL)
+	if err := waitHealthy(ctx, r.cfg.BackendHealthURL, healthWait); err != nil {
+		return err
+	}
+	r.logf(job, "backend is answering")
 	return nil
 }
 

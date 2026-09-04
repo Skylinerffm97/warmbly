@@ -41,6 +41,8 @@ for. Prefer parsing that over reasoning from the prose.
 | List workspaces | `warmblyctl org list` |
 | Move a workspace out | `warmblyctl org export --org <id\|slug\|owner-email> --out file.zip` |
 | Move a workspace in | `warmblyctl org import --org ... --file file.zip --dry-run` first |
+| Back the instance up | `warmblyctl backup --out /data/blobs/warmbly.tar.gz`, then copy it out and delete it |
+| Restore one onto this instance | `warmblyctl restore --file /data/blobs/warmbly.tar.gz` |
 
 ## Mechanics that bite
 
@@ -60,6 +62,21 @@ for. Prefer parsing that over reasoning from the prose.
   product has (every mailbox password and refresh token, sealed only by the
   passphrase you supply). Never write it anywhere world-readable, and never
   echo the passphrase.
+- `backup` and `restore` are the INSTANCE-level pair and are not
+  interchangeable with `org export`/`org import`: a bundle cannot be applied to
+  one workspace, and a workspace archive cannot restore an instance.
+- `restore` replaces every organization, user and mailbox on the target. It
+  asks for a typed `restore` first; `--yes` skips that, so only pass it to a
+  target you have just checked with `status --json`.
+- `restore` refuses when the host's `CREDENTIALS_ENCRYPTION_KEY` or
+  `KMS_LOCAL_MASTER_KEY` differ from the bundle's, and prints the lines to put
+  in `.env`. Do that. `--force` accepts losing every stored mailbox credential
+  permanently and is never the right answer to that message.
+
+## Standing an instance up, or moving one
+
+Installing, reconfiguring, backing up on a schedule and moving an instance to
+another host is the `warmbly-install` skill.
 
 ## Interacting with the product itself
 

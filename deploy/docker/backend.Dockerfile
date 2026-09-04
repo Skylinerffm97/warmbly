@@ -38,7 +38,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.23
 
 ARG GO_TAGS=""
-RUN apk add --no-cache ca-certificates tzdata && \
+# postgresql-client is here for `warmblyctl backup` and `warmblyctl restore`:
+# the instance bundle is a pg_dump and the restore replays it with psql, and the
+# backend container is where the CLI already has PRIMARY_DB and the blob root.
+RUN apk add --no-cache ca-certificates tzdata postgresql-client && \
     if echo "$GO_TAGS" | grep -qw kafka; then apk add --no-cache librdkafka; fi && \
     adduser -D -u 1000 warmbly
 

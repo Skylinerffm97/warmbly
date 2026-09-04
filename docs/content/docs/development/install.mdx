@@ -1,0 +1,318 @@
+---
+title: Install
+description: One command installs Warmbly from published release images, with a wizard that asks where your data lives, what is kept and for how long, and how it is backed up.
+---
+
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh
+```
+
+No clone, no compiler, no toolchain. The script checks Docker, creates one directory, generates every secret, pulls the pinned release images, starts the stack and prints the link that claims your instance. On a clean box with Docker already installed it finishes in under two minutes.
+
+Add `--wizard` and it asks the questions a config reference cannot ask for you.
+
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh -s -- --wizard
+```
+
+## What it installs
+
+| | |
+|---|---|
+| Where | `/opt/warmbly`, or wherever you point `--dir` |
+| What | `docker-compose.yml`, a `.env` at 0600, `keys-backup.txt`, and the data root |
+| Version | The newest release, resolved once and pinned in `.env`. Never `latest` |
+| Images | `ghcr.io/warmbly/warmbly/*`, multi-arch for amd64 and arm64 |
+| Services | Backend, consumer, worker, dashboard, admin, Postgres, Redis, NATS, and (unless you say core only) tracking, realtime and forms |
+
+Nothing is built on your machine. The clone-and-build path still exists and is still supported; see [self-hosting](/development/deployment-guide/) for when you want it.
+
+## Before you run it
+
+Piping a script into a shell is a fair thing to be uneasy about, and the objection is only answerable if the script is versioned, inspectable and checksummed. All three are:
+
+```bash
+curl -fsSLO https://warmbly.com/install.sh
+curl -fsSLO https://warmbly.com/install.sh.sha256
+sha256sum -c install.sh.sha256
+less install.sh
+sh install.sh
+```
+
+The script itself is written to deserve that: `set -eu`, every line inside a function, and `main "$@"` on the very last line, so a download that is cut off half way executes nothing at all. It never asks to be piped into `sudo`; it asks for elevation only for the specific steps that need it, and names them.
+
+You also do not have to run it to see what it would do:
+
+```bash
+sh install.sh --dry-run
+```
+
+That prints the exact `.env` and compose file it would write, and touches nothing.
+
+### And after it runs
+
+Every release publishes an `images.json` asset listing the manifest digest of each image in it. Once the pull finishes the installer compares what actually landed on the machine against that file, and stops before starting anything if they differ. You can check the same thing yourself at any time:
+
+```bash
+docker image inspect ghcr.io/warmbly/warmbly/backend:v1.4.2 --format '{{index .RepoDigests 0}}'
+```
+
+An install pointed at your own registry with `--registry` has no manifest to check against, and the installer says so rather than pretending it verified something.
+
+## Requirements
+
+| You need | Notes |
+|---|---|
+| Linux or macOS, amd64 or arm64 | On Windows, run it inside WSL |
+| Docker 20.10+ with Compose v2 | The script offers to install Docker on Linux, and never does so quietly |
+| ~2 GB disk | The images, not a build cache. There is no build |
+| 4 GB RAM | The running stack idles near 300 MB |
+| Free ports | 8080, 5173, 5174, and 3000, 4000, 8090 with every component |
+
+Port `3000` is the one that actually collides: it is the default for a lot of other self-hosted software. The installer checks every port before it writes anything and tells you which one is taken.
+
+## The wizard
+
+`--wizard` walks nine steps. Every answer has a default that matches the fast path, so pressing enter through the whole thing produces exactly the install the one-liner produces.
+
+Every menu takes the keys you already use:
+
+| Keys | Does |
+|---|---|
+| `↑` `↓`, `j` `k`, `ctrl-n` `ctrl-p` | Move |
+| `ctrl-d` `ctrl-u` | Half a screen |
+| `gg`, `G` | First, last |
+| `1` to `9` | Jump straight to that option |
+| `enter`, `space`, `l` | Take it |
+| `q`, `esc`, `ctrl-c` | Leave without installing |
+
+The review screen at the end takes `enter` to install, `e` to go back into a section, and `q` to quit.
+
+Steps append rather than replacing each other, so the whole run stays scrollable and nothing above the installer is touched. `--clear` redraws the screen at each step instead, if you prefer that.
+
+<Steps>
+
+<Step>
+
+### Where it lives
+
+One directory holds the compose file, the `.env`, and, unless you move it in step three, every store this instance writes to. Default `/opt/warmbly`.
+
+</Step>
+
+<Step>
+
+### How it is reached
+
+The hostname every link is built from: the dashboard URL, the unsubscribe link in campaign mail, the tracking pixel. Then how it is served:
+
+| Choice | What it does |
+|---|---|
+| **Plain HTTP** | Ports published as they are. Correct for localhost or a private network |
+| **Bundled Caddy** | Adds a Caddy service with automatic HTTPS, one hostname per surface, and binds everything else to loopback |
+| **Behind your proxy** | Binds every service to `127.0.0.1` and sets `TRUSTED_PROXIES`, which is silently wrong on every proxied install that was configured by hand |
+
+`TRUSTED_PROXIES` matters more than it looks. Without it every request appears to come from the proxy, so per-IP rate limits and click deduplication stop distinguishing between people.
+
+The bundled Caddy option serves six hostnames under the domain you give it, and the installer prints the DNS records at the end:
+
+```
+app.example.com     admin.example.com    api.example.com
+ws.example.com      track.example.com    forms.example.com
+```
+
+</Step>
+
+<Step>
+
+### Where the data sits
+
+The question the rest of the install cannot answer for you, and the reason the wizard exists.
+
+| Choice | What you get |
+|---|---|
+| **Under the install directory** | `/opt/warmbly/data` holds Postgres, blobs, NATS and worker state |
+| **A path you choose** | An external disk or a mount you already snapshot |
+| **Docker named volumes** | Managed by Docker, portable only through `docker volume` |
+
+A real path is the default, because it is the choice that makes backup and migration obvious: with the stack stopped, moving the instance to another host is `rsync` of that path plus the `.env`. Do not copy it while Postgres is running; a live data directory is not a consistent snapshot. To move an instance without stopping it, use [`warmblyctl backup`](/development/data-control/#backups). Compose reads a volume source starting with `/` as a bind mount and anything else as a named volume, so this is one variable per store and no second compose file.
+
+Then, behind one prompt: an external Postgres or Redis (the bundled container is left out entirely when you bring your own), and where message bodies, attachments and avatars go.
+
+<Callout type="warn" title="Filesystem blobs are local to one machine">
+A worker running on another host writes to its own disk. Once you scale workers out, blob storage has to be S3-compatible or bodies go missing. The wizard offers MinIO, R2, B2 and AWS.
+</Callout>
+
+</Step>
+
+<Step>
+
+### Keys and secrets
+
+Five secrets are generated: `AUTH_SECRET`, `INTERNAL_API_TOKEN`, `SECRET_KEY_BASE`, `KMS_LOCAL_MASTER_KEY` and `CREDENTIALS_ENCRYPTION_KEY`. They are written 0600, `APP_ENV` is set to `prod`, and no published default is ever reachable through this path.
+
+The last two are unrecoverable. Every mailbox credential and every per-organization key is sealed with them, so a database backup that does not travel with them restores an instance whose mailboxes authenticate against nothing. The wizard prints both, writes them to `keys-backup.txt` next to the install, and waits until you type that you have a copy somewhere else.
+
+</Step>
+
+<Step>
+
+### What is kept, and for how long
+
+Two groups, both editable afterwards in **Instance > Instance settings**:
+
+| Setting | Default | What it governs |
+|---|---|---|
+| Import window | 90 days | How far back the initial import reaches when a mailbox is connected |
+| Import cap | 5,000 | The most messages that import stores per mailbox |
+| Daily per mailbox | 2,000 | New mail one mailbox may store per UTC day |
+| Daily per organization | 25,000 | New plus imported mail across one workspace per UTC day |
+| Opens and clicks | 365 days | Per-event logs, with the client, device and approximate location of each |
+| Form funnel events | 180 days | Views, starts, field-level drop-off |
+| Audit log | 90 days | Who did what, from which IP address and user agent |
+
+The last three are also how long that personal data is held. A "minimal retention" preset sets every event window to 30 days.
+
+</Step>
+
+<Step>
+
+### Backups
+
+A scheduled `warmblyctl backup`: a target directory, a frequency, how many to keep, and whether the encryption keys travel in the bundle. It writes `backup.sh` next to the install and, on a systemd host, a service and a timer.
+
+Including the keys makes the bundle as sensitive as the instance itself. Leaving them out means keeping `keys-backup.txt` somewhere else, or the bundles cannot be restored at all.
+
+</Step>
+
+<Step>
+
+### Who gets in
+
+The first owner, either as a printed claim link or unattended from `WARMBLY_BOOTSTRAP_EMAIL` plus a hash from `warmblyctl hash-password`. Then the registration posture, and platform mail: an SMTP relay, or skip it and have password resets and login codes printed to the backend log.
+
+</Step>
+
+<Step>
+
+### Footprint
+
+Everything, or core only (no tracking pixel, no websockets, no hosted forms). Ports are checked for collisions before anything is written. Last, the update check, which is one outbound call to the GitHub releases API and the only outbound call this instance makes on its own. There is no telemetry in Warmbly.
+
+</Step>
+
+<Step>
+
+### Review
+
+Every answer on one screen. Enter installs, `e` goes back to any section, `q` leaves without writing anything.
+
+</Step>
+
+</Steps>
+
+## See it first
+
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh -s -- --demo
+```
+
+The real wizard and the real review, with the pull, the container creation and the health wait played rather than run. It writes no file, pulls no image, creates no container and needs no Docker, so it answers "what does this actually do" without a server to try it on.
+
+It takes about half a minute, paced so the phases are readable; a real install is several minutes, most of it the pull and the first boot's migrations. `WARMBLY_DEMO_FAST=1` collapses it to under ten seconds. From a checkout: `make installer-demo`.
+
+## For agents
+
+An agent should never drive the wizard: it reads raw keypresses and needs a
+terminal. Every answer is also a flag, so `--yes` with flags is silent,
+deterministic and idempotent, and `--print-env` and `--dry-run` show what a run
+would produce without producing it.
+
+The repository ships a `warmbly-install` skill under `skills/` covering exactly
+that, plus backups and moving an instance. Install it the way your agent
+expects, for example `cp -r skills/warmbly-install ~/.claude/skills/`.
+
+## Unattended
+
+Every answer is a flag and a `WARMBLY_*` environment variable, so the same script provisions from Ansible or cloud-init:
+
+```bash
+curl -fsSL https://warmbly.com/install.sh | sh -s -- --yes \
+  --dir /opt/warmbly \
+  --host warmbly.acme.com \
+  --tls caddy \
+  --data-root /mnt/data/warmbly \
+  --blobs s3 \
+  --retention-preset minimal \
+  --backup-dir /mnt/backups/warmbly \
+  --version v1.4.2
+```
+
+| Flag | Variable | Default |
+|---|---|---|
+| `--dir` | `WARMBLY_DIR` | `/opt/warmbly` |
+| `--host` | `WARMBLY_HOST` | `localhost` |
+| `--tls` | `WARMBLY_TLS` | `none` (`caddy`, `proxy`) |
+| `--data-root` | `WARMBLY_DATA_ROOT` | `<dir>/data` (or `volumes`) |
+| `--blobs` | `WARMBLY_BLOBS` | `filesystem` (`s3`) |
+| `--database-url` | `WARMBLY_DATABASE_URL` | bundled Postgres |
+| `--redis-url` | `WARMBLY_REDIS_URL` | bundled Redis |
+| `--components` | `WARMBLY_COMPONENTS` | `full` (`core`) |
+| `--version` | `WARMBLY_VERSION` | newest release |
+| `--channel` | `WARMBLY_CHANNEL` | `stable` (`dev`) |
+| `--registry` | `WARMBLY_IMAGE_PREFIX` | `ghcr.io/warmbly/warmbly` |
+| `--backup-dir` | `WARMBLY_BACKUP_DIR` | none |
+| `--backup-keep` | `WARMBLY_BACKUP_KEEP` | `14` |
+| `--retention-preset` | | `default` (`minimal`) |
+| `--no-update-check` | `WARMBLY_UPDATE_CHECK` | on |
+
+`--print-env` emits the `.env` and exits. `--dry-run` prints every file it would write and exits. `--demo` walks the whole thing and installs nothing.
+
+## Re-running it
+
+The installer is idempotent. A second run:
+
+- adopts the existing `.env` and never regenerates a secret, because a new `AUTH_SECRET` signs everyone out and a new `CREDENTIALS_ENCRYPTION_KEY` is permanent data loss
+- keeps the existing data root, because pointing an install at a new path is not a move, it is an empty instance next to a full one
+- keeps any keys you added to `.env` yourself, in a clearly marked block at the end
+- regenerates `docker-compose.yml`, keeping the previous one as `docker-compose.yml.bak`
+- refuses a directory it did not create, unless you pass `--force`
+
+Put your own compose changes in a `docker-compose.override.yml`, which compose merges on top and the installer never touches.
+
+## Updating
+
+The version pill in the admin panel, then **Update and restart**. On an install created this way the updater runs in image mode: it writes the new tag into `.env`, pulls, and recreates the containers whose image changed. Nothing is built. See [updates](/development/updates/).
+
+By hand, from the install directory:
+
+```bash
+docker compose -p warmbly pull && docker compose -p warmbly up -d
+```
+
+## Removing it
+
+```bash
+sh install.sh --uninstall
+```
+
+Stops and removes the containers and leaves every byte of data where it is. Adding `--purge-data` deletes the data root and the install directory as well, and asks you to type a phrase first, because that also destroys the only keys that could have opened a backup of it.
+
+## When it goes wrong
+
+| Symptom | Cause |
+|---|---|
+| `Docker is installed but not answering` | The daemon is not running, or your user is not in the `docker` group yet. `sudo systemctl start docker`, then log out and back in |
+| `Something already listens on 3000` | Another self-hosted tool. Change the published port in `docker-compose.yml` before starting |
+| `Could not pull the release images` | The tag does not exist, or this host cannot reach `ghcr.io`. Check [releases](https://github.com/warmbly/warmbly/releases) |
+| The API never answers | The first boot applies every migration. `docker compose -p warmbly logs -f backend` |
+| No claim link printed | The database already has accounts, so there is nothing to claim. See [first run](/development/first-run/) |
+
+More in [troubleshooting](/development/troubleshooting/) and [instance health](/development/instance-health/).
+
+## Next
+
+- [First run](/development/first-run/): claiming the instance, the first owner, demo data
+- [Data control](/development/data-control/): where every store lives, what each retention window governs, backups, and moving an instance
+- [Configuration](/development/configuration/): every environment variable and every database-backed setting
+- [Self-hosting](/development/deployment-guide/): the full guide, including building from source
