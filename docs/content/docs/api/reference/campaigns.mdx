@@ -171,6 +171,7 @@ Create a campaign. Only `name` is required, every other field is optional and ap
 | `days` | integer (0-127) | no | Legacy weekday bitmask (superseded by `schedule_windows`). |
 | `start_time` | string | no | Legacy daily start (`HH:MM`). |
 | `end_time` | string | no | Legacy daily end (`HH:MM`). |
+| `schedule_windows` | array | no | Per-day sending windows, 7 arrays indexed by weekday (Sunday = 0) of `{start, end}` minute-of-day intervals. When non-empty it supersedes `days`, `start_time` and `end_time`. |
 | `email_tag_ids` | string[] | no | Mailbox tag ids that resolve the sender pool (tags strategy). |
 | `folder_ids` | string[] | no | Folder ids to file the campaign under. |
 | `sender_strategy` | string | no | `tags` (default) or `explicit`. |

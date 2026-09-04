@@ -376,6 +376,9 @@ type CreateCampaign struct {
 	StartTime *string    `json:"start_time,omitempty"`
 	EndTime   *string    `json:"end_time,omitempty"`
 
+	// Authoritative per-day schedule. When sent, supersedes Days/StartTime/EndTime.
+	ScheduleWindows *ScheduleWindows `json:"schedule_windows,omitempty"`
+
 	// Sender pool — accepts UUIDs already created by the user.
 	EmailTagIDs []string `json:"email_tag_ids,omitempty"`
 	FolderIDs   []string `json:"folder_ids,omitempty"`
