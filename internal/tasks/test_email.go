@@ -73,7 +73,7 @@ func (s *tasksService) SendTestEmail(ctx context.Context, orgID uuid.UUID, accou
 		MessageID:      generateMessageID(account.Email),
 		IsWarmup:       false,
 		UnsubscribeURL: headerURL,
-		Attachments:    s.campaignAttachmentRefs(ctx, campaign.ID),
+		Attachments:    s.campaignAttachmentRefs(ctx, campaign.ID, sequence.ID),
 	}
 
 	taskID := uuid.New()

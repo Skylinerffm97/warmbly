@@ -52,16 +52,30 @@ func sanitizeFilename(name string) string {
 
 func mb(b int64) int64 { return b / (1024 * 1024) }
 
-// UploadCampaignAttachment — POST /campaigns/:id/attachments (multipart "file")
-func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
+// attachmentCampaign resolves the campaign these attachment routes address and
+// proves it belongs to the caller's organization. The route id is a raw path
+// parameter, so without this an attachment could be listed, uploaded or deleted
+// on another workspace's campaign.
+func (h *Handler) attachmentCampaign(c *gin.Context) (campaignID, orgID uuid.UUID, xerr *errx.Error) {
 	campaignID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		errx.JSON(c, errx.ErrUuid)
-		return
+		return uuid.Nil, uuid.Nil, errx.ErrUuid
 	}
-	orgID := middleware.GetOrganizationID(c)
-	if orgID == nil {
-		errx.JSON(c, errx.New(errx.BadRequest, "no organization selected"))
+	org := middleware.GetOrganizationID(c)
+	if org == nil {
+		return uuid.Nil, uuid.Nil, errx.New(errx.BadRequest, "no organization selected")
+	}
+	if _, xerr := h.CampaignService.Get(c.Request.Context(), org.String(), campaignID.String()); xerr != nil {
+		return uuid.Nil, uuid.Nil, xerr
+	}
+	return campaignID, *org, nil
+}
+
+// UploadCampaignAttachment — POST /campaigns/:id/attachments (multipart "file")
+func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
+	campaignID, orgID, xerr := h.attachmentCampaign(c)
+	if xerr != nil {
+		errx.JSON(c, xerr)
 		return
 	}
 	userID, err := uuid.Parse(middleware.GetUserID(c))
@@ -74,16 +88,32 @@ func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
 		return
 	}
 
-	// Optional sequence_id form field scopes the attachment to one step.
+	// Cap the body before anything reads it, so a huge upload can't pin a
+	// worker: the first form field read parses the whole multipart body.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, attachmentMaxBytes+(1<<20))
+
+	// Optional step_id scopes the attachment to one step; without it the file
+	// rides every step of the campaign. A malformed or foreign step is refused
+	// rather than silently widened to the whole campaign.
 	var seqID *uuid.UUID
-	if s := strings.TrimSpace(c.PostForm("step_id")); s != "" {
-		if id, perr := uuid.Parse(s); perr == nil {
-			seqID = &id
+	if raw := strings.TrimSpace(c.PostForm("step_id")); raw != "" {
+		id, perr := uuid.Parse(raw)
+		if perr != nil {
+			errx.JSON(c, errx.New(errx.BadRequest, "step_id must be a uuid"))
+			return
 		}
+		belongs, berr := h.AttachmentRepo.StepBelongsToCampaign(c.Request.Context(), campaignID, id)
+		if berr != nil {
+			errx.JSON(c, errx.InternalError())
+			return
+		}
+		if !belongs {
+			errx.JSON(c, errx.New(errx.NotFound, "step not found in this campaign"))
+			return
+		}
+		seqID = &id
 	}
 
-	// Cap the body before parsing so a huge upload can't pin a worker.
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, attachmentMaxBytes+(1<<20))
 	fh, err := c.FormFile("file")
 	if err != nil {
 		errx.JSON(c, errx.New(errx.BadRequest, "file is required"))
@@ -100,12 +130,12 @@ func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
 	}
 
 	// Plan-based overall storage quota (org-wide).
-	limit, xerr := h.FeatureGateService.GetStorageLimitBytes(c.Request.Context(), *orgID)
+	limit, xerr := h.FeatureGateService.GetStorageLimitBytes(c.Request.Context(), orgID)
 	if xerr != nil {
 		errx.JSON(c, xerr)
 		return
 	}
-	used, err := h.AttachmentRepo.SumStorageUsedByOrg(c.Request.Context(), *orgID)
+	used, err := h.AttachmentRepo.SumStorageUsedByOrg(c.Request.Context(), orgID)
 	if err != nil {
 		errx.JSON(c, errx.InternalError())
 		return
@@ -163,9 +193,9 @@ func (h *Handler) UploadCampaignAttachment(c *gin.Context) {
 
 // ListCampaignAttachments — GET /campaigns/:id/attachments
 func (h *Handler) ListCampaignAttachments(c *gin.Context) {
-	campaignID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		errx.JSON(c, errx.ErrUuid)
+	campaignID, _, xerr := h.attachmentCampaign(c)
+	if xerr != nil {
+		errx.JSON(c, xerr)
 		return
 	}
 	atts, err := h.AttachmentRepo.ListByCampaign(c.Request.Context(), campaignID)
@@ -182,9 +212,9 @@ func (h *Handler) ListCampaignAttachments(c *gin.Context) {
 
 // DeleteCampaignAttachment — DELETE /campaigns/:id/attachments/:attachmentId
 func (h *Handler) DeleteCampaignAttachment(c *gin.Context) {
-	campaignID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		errx.JSON(c, errx.ErrUuid)
+	campaignID, _, xerr := h.attachmentCampaign(c)
+	if xerr != nil {
+		errx.JSON(c, xerr)
 		return
 	}
 	attID, err := uuid.Parse(c.Param("attachmentId"))
