@@ -168,10 +168,13 @@ func TestLiveRealSendsStillSpendTheDailyBudget(t *testing.T) {
 
 // addClosedHoursMailbox attaches a second active mailbox whose own 8am-8pm
 // band is closed right now, and returns its timezone. Picked from a spread of
-// offsets, so one is always closed at any hour of the day.
+// offsets no wider than the closed band, so one always qualifies whatever the
+// hour. It must still be closed when the scheduler runs a moment later, or a
+// mailbox picked at 07:59 would be open by then and the pass would send.
 func (f *liveFixture) addClosedHoursMailbox(t *testing.T) *time.Location {
 	t.Helper()
 	ctx := context.Background()
+	closed := func(at time.Time) bool { return at.Hour() < 8 || at.Hour() >= 20 }
 	var loc *time.Location
 	for _, name := range []string{"Pacific/Honolulu", "America/Los_Angeles", "America/New_York", "Europe/London",
 		"Europe/Berlin", "Asia/Dubai", "Asia/Tokyo", "Pacific/Auckland"} {
@@ -179,13 +182,14 @@ func (f *liveFixture) addClosedHoursMailbox(t *testing.T) *time.Location {
 		if err != nil {
 			continue
 		}
-		if h := time.Now().In(l).Hour(); h < 8 || h >= 20 {
+		now := time.Now().In(l)
+		if closed(now) && closed(now.Add(10*time.Minute)) {
 			loc = l
 			break
 		}
 	}
 	if loc == nil {
-		t.Fatal("no timezone in the spread is outside 8am-8pm right now")
+		t.Fatal("no timezone in the spread stays outside 8am-8pm for the next ten minutes")
 	}
 	mailbox := uuid.New()
 	if _, err := f.pool.Exec(ctx, `INSERT INTO email_accounts (id, user_id, organization_id, email, name,
@@ -221,8 +225,10 @@ func TestLiveMixedPoolResumesAtTheEarlierMailbox(t *testing.T) {
 	if !errors.Is(err, ErrCampaignDeferred) || pair != nil {
 		t.Fatalf("want a deferral, got err=%v pair=%v", err, pair)
 	}
+	// Exactly the reopening, within a minute: later means the capped mailbox's
+	// "tomorrow" won, earlier means the pass never really deferred.
 	reopen := businessHoursReopen(time.Now(), loc)
-	if at.After(reopen.Add(time.Minute)) {
+	if at.Before(reopen.Add(-time.Minute)) || at.After(reopen.Add(time.Minute)) {
 		t.Fatalf("deferred to %s, but the second mailbox reopens at %s", at, reopen)
 	}
 	assertFuture(t, at)
