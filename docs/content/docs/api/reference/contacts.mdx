@@ -671,12 +671,13 @@ Auth: **Scope** `READ_CONTACTS` · **Org permission** `view_contacts`
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
 | `id` | path | UUID | Contact ID. |
-| `limit` | query | integer | Page size, 1 to 200 (default 50). |
-| `before` | query | string (RFC 3339 nano) | The `at` timestamp of the oldest event from the previous page. |
+| `limit` | query | integer | Page size, 1 to 200 (default 50). Anything else is a `400`. |
+| `cursor` | query | string | Opaque pagination cursor from `pagination.next_cursor`. A malformed cursor is a `400`. |
+| `before` | query | string (RFC 3339 nano) | Deprecated. Returns the events strictly older than this timestamp, which can skip events that share an instant with the page boundary; use `cursor`. A value that is not an RFC 3339 timestamp is a `400`. Ignored when `cursor` is set. |
 
 ### Response
 
-Returns a `data` array and a `has_more` flag (not a cursor envelope). Paginate by passing the oldest event's `at` as `before`.
+Returns a `data` array and the standard `pagination` envelope. Paginate by passing `pagination.next_cursor` back as `cursor` until `has_more` is `false`. The cursor is the exact position of the last event on the page (its time, source and row), so events that share a timestamp, common when a send, its open and a note land in the same second, are never skipped or repeated across pages. The top-level `has_more` mirrors `pagination.has_more` and is kept for clients written before the envelope. `pagination.total` is always `null`: the feed is merged from several tables and is never counted.
 
 ```json
 {
@@ -734,13 +735,16 @@ Returns a `data` array and a `has_more` flag (not a cursor envelope). Paginate b
       "user_id": "u1..."
     }
   ],
-  "has_more": false
+  "has_more": false,
+  "pagination": { "total": null, "next_cursor": null, "has_more": false }
 }
 ```
 
-`type` is one of `email_sent`, `email_opened`, `email_clicked`, `email_replied`, `email_bounced`, `reply_received`, `deliverability`, `suppressed`, `note`, `meeting_booked`, `meeting_rescheduled`, `meeting_canceled`, `contact_created`, `campaign_added`, `campaign_removed`, `category_added`, or `category_removed`. Fields not relevant to an event type are omitted.
+`type` is one of `email_sent`, `email_opened`, `email_clicked`, `email_replied`, `email_bounced`, `reply_received`, `deliverability`, `suppressed`, `note`, `meeting_booked`, `meeting_rescheduled`, `meeting_canceled`, `contact_created`, `campaign_added`, `campaign_removed`, `category_added`, `category_removed`, `form_submitted`, or `page_hit`. Fields not relevant to an event type are omitted.
 
 `email_opened` and `email_clicked` carry `machine`: `true` when an automated fetcher did it rather than the person (a mail privacy proxy, a fetch inside ten seconds of the send, several links followed within seconds). Per-link `email_clicked` events carry `machine_reason` (`prefetch`, `instant` or `burst`), and per-event `email_opened` rows carry it too (`prefetch` or `instant`); an open summarised from the lead alone carries only the flag. Both kinds carry an `origin` object when the event was logged: `client` when the user agent names a mail client or image proxy, `device_type`, `os`, `browser`, `browser_version`, and `country_code`, `region`, `city` when the consumer could resolve them. Opens appear once per event, so a contact who opened from two devices has two rows. Automated clicks are on the feed for the record but never count the step as clicked. An `email_clicked` event carries `link` with the link's `id`, `url`, `label` (its anchor text), the `utm_*` parameters the URL carried, and the `user_agent`; every link in an email is tracked on its own, so each link clicked is its own event. Clicks recorded before per-link attribution have no `link`.
+
+A `form_submitted` event carries `form_id` and `form_name`. A `page_hit` event is a page view on your own site from a browser tied to the contact through an email-link ticket (see [Website tracking](/guides/website-tracking/)); `subject` is the page title, or its path when the page has none, and `page_hit` carries the full view: `url`, `path`, `title`, `referrer`, `referrer_domain`, `landing` (the first view of a session), the `utm_*` parameters, `device_type`, `os`, `browser`, `browser_version`, `device_brand`, `language`, `timezone`, `screen_width`, `screen_height`, and `country_code`, `region`, `city` when known.
 
 Lifecycle events carry the name of what changed as it was at the time (`campaign_name`, or `category_id` plus `category_title`), so a later rename or deletion does not rewrite history. A `contact_created` event carries `source` (`manual`, `campaign`, `import`, `sheet_sync`, `api`, `ai_assistant`, or `unknown` for contacts that predate attribution) and `source_detail` (the file, campaign, sheet or API key name). The same values are on the contact itself as `source`, `source_detail` and `first_seen_at`, and never change after creation.
 

@@ -159,3 +159,54 @@ func DecodeCursor(token string) (*string, *errx.Error) {
 	s := id.String()
 	return &s, nil
 }
+
+// mergedPrefix versions the merged-feed keyset token: (at, source, id). Used by
+// feeds that merge several tables into one chronological list, where two rows
+// can share a timestamp across tables and even within one, so the position
+// needs the source and that source's row id to be unambiguous.
+const mergedPrefix = "m1_"
+
+// EncodeMerged wraps an (at, source, id) keyset position in an opaque token.
+// Returns nil for the zero id ("no next page") so the JSON field serializes as
+// null.
+func EncodeMerged(at time.Time, source int, id uuid.UUID) *string {
+	if id == uuid.Nil {
+		return nil
+	}
+	payload := at.UTC().Format(time.RFC3339Nano) + "|" + strconv.Itoa(source) + "|" + id.String()
+	tok := mergedPrefix + base64.RawURLEncoding.EncodeToString([]byte(payload))
+	return &tok
+}
+
+// DecodeMergedCursor reverses EncodeMerged. An empty token yields (zeroTime, 0,
+// uuid.Nil, nil) (start from the beginning); an invalid token returns a 400.
+func DecodeMergedCursor(token string) (time.Time, int, uuid.UUID, *errx.Error) {
+	if token == "" {
+		return time.Time{}, 0, uuid.Nil, nil
+	}
+	invalid := errx.New(errx.BadRequest, "invalid cursor")
+	if !strings.HasPrefix(token, mergedPrefix) {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(token, mergedPrefix))
+	if err != nil {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	parts := strings.SplitN(string(raw), "|", 3)
+	if len(parts) != 3 {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	at, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	source, err := strconv.Atoi(parts[1])
+	if err != nil || source < 0 {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	id, err := uuid.Parse(parts[2])
+	if err != nil {
+		return time.Time{}, 0, uuid.Nil, invalid
+	}
+	return at, source, id, nil
+}
