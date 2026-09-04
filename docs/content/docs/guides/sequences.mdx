@@ -20,11 +20,15 @@ Each card has two source dots: the **bottom dot** is a plain "go there next" con
 
 A step has an internal **name** (never seen by recipients), a **subject** with a variable menu for merge fields like `{{.FirstName}}`, and a rich-text **body**.
 
-The Preview tab renders through the real send engine against a sample contact, so merge fields, conditionals, and spintax resolve exactly as they will at send time. Malformed templates (an `{{if}}` with no `{{end}}`) are flagged before you start the campaign. See [Personalization](/guides/expressions/) for everything you can put in copy.
+The Preview tab renders through the real send engine, so merge fields, conditionals, and spintax resolve exactly as they will at send time. **Preview as** picks who it renders for: a built-in sample contact, one of the campaign's leads, or any contact you search for, so a custom field your list does not actually have shows up as an unresolved token instead of looking fine. The mailbox picker next to it adds that sender's signature and shows the From name recipients will see. When the campaign is known the preview also appends the opt-out footer and lists the files attached to the campaign. Malformed templates (an `{{if}}` with no `{{end}}`) are flagged before you start the campaign. See [Personalization](/guides/expressions/) for everything you can put in copy.
+
+**Send test** in the preview mails the saved step to an address of your choice through the chosen mailbox, rendered for the chosen contact and carrying the attachments, signature and opt-out footer. Save the step first: the test sends what is stored, not unsaved edits. Opens and clicks on a test are not tracked, and its opt-out link names nobody, so clicking it suppresses no one.
 
 <Callout type="info" title="Templates">
 Apply a saved template to a step, or save a step as a reusable one from the composer. Templates carry their subject and body and live in your shared library.
 </Callout>
+
+Upload attachments for a step below its composer by dragging and dropping files or clicking the upload area. A file uploaded there is sent with every email from that step and from no other step, and can be removed in the same place. Files attached to the campaign itself rather than to a step, which can only be added through the API, ride every step: they are listed under **Sent with every step** so each step shows everything it carries. Attachments count against your workspace storage limit, and removing a step deletes the files scoped to it.
 
 ### Action steps
 

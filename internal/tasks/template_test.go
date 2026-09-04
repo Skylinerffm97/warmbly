@@ -234,3 +234,51 @@ func TestGenerateMessageID_Format(t *testing.T) {
 		t.Errorf("message ID should start with <, got %q", mid)
 	}
 }
+
+// The HTML signature is a block with a top margin, not <br><br> stacked on the
+// body's own trailing margin, and it goes inside the document when there is one.
+func TestAddSignatureSpacing(t *testing.T) {
+	out := AddSignature("<p>Hi</p>", "<p>Ana</p>", true)
+	if strings.Contains(out, "<br>") {
+		t.Errorf("signature still separated by breaks: %q", out)
+	}
+	if !strings.Contains(out, `<div style="margin-top:16px"><p>Ana</p></div>`) {
+		t.Errorf("signature not wrapped in its own block: %q", out)
+	}
+
+	doc := AddSignature("<html><body><p>Hi</p></body></html>", "<p>Ana</p>", true)
+	if !strings.HasSuffix(doc, "</body></html>") || strings.Index(doc, "Ana") > strings.Index(doc, "</body>") {
+		t.Errorf("signature landed outside the document: %q", doc)
+	}
+
+	// HTML tag names are case-insensitive, so a pasted </BODY> counts too.
+	upper := AddSignature("<HTML><BODY><p>Hi</p></BODY></HTML>", "<p>Ana</p>", true)
+	if !strings.HasSuffix(upper, "</BODY></HTML>") || strings.Index(upper, "Ana") > strings.Index(upper, "</BODY>") {
+		t.Errorf("signature landed outside an upper-case document: %q", upper)
+	}
+	spaced := AddSignature("<html><body><p>Hi</p></body ></html>", "<p>Ana</p>", true)
+	if strings.Index(spaced, "Ana") > strings.Index(spaced, "</body >") {
+		t.Errorf("signature landed outside a spaced closing tag: %q", spaced)
+	}
+
+	if plain := AddSignature("Hi", "Ana", false); plain != "Hi\n\nAna" {
+		t.Errorf("plain-text spacing changed: %q", plain)
+	}
+	if none := AddSignature("<p>Hi</p>", "", true); none != "<p>Hi</p>" {
+		t.Errorf("empty signature altered the body: %q", none)
+	}
+}
+
+// The opt-out footer still lands after the signature once both are applied to a
+// body carrying a </body>, which is the order a reader expects.
+func TestSignatureThenOptOutOrderInsideDocument(t *testing.T) {
+	body := AddSignature("<html><body><p>Hi</p></body></html>", "<p>Ana</p>", true)
+	body, _ = appendOptOut(body, "", models.UnsubscribeSettings{Mode: models.UnsubscribeModeText, Text: "Reply stop."}, "")
+	sig, foot := strings.Index(body, "Ana"), strings.Index(body, "Reply stop.")
+	if sig < 0 || foot < 0 || sig > foot {
+		t.Fatalf("footer did not follow the signature: %q", body)
+	}
+	if strings.Index(body, "</body>") < foot {
+		t.Fatalf("footer landed outside the document: %q", body)
+	}
+}

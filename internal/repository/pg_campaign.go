@@ -239,6 +239,13 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 		}
 		endTime = *data.EndTime
 	}
+	var scheduleWindows models.ScheduleWindows
+	if data.ScheduleWindows != nil {
+		if err := validate.CampaignScheduleWindows(data.ScheduleWindows); err != nil {
+			return nil, err
+		}
+		scheduleWindows = *data.ScheduleWindows
+	}
 	if data.StartDate != nil {
 		if err := validate.CampaignStartDate(*data.StartDate); err != nil {
 			return nil, err
@@ -454,7 +461,7 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 			stop_on_reply, open_tracking, link_tracking, text_only,
 			daily_limit, unsubscribe_header, risky_emails,
 			cc_addr, bcc_addr,
-			start_date, end_date, timezone, days, start_time, end_time,
+			start_date, end_date, timezone, days, start_time, end_time, schedule_windows,
 			sender_strategy, rotation_mode,
 			ramp_enabled, ramp_start, ramp_increment, ramp_ceiling,
 			esp_match_mode, max_new_leads_per_day, prioritize_new_leads,
@@ -467,13 +474,13 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 			$5, $6, $7, $8,
 			$9, $10, $11,
 			$12, $13,
-			$14, $15, $16, $17, $18, $19,
-			$20, $21,
-			$22, $23, $24, $25,
-			$26, $27, $28,
-			$29, $30,
-			$31, $32, $33, $34,
-			$35,
+			$14, $15, $16, $17, $18, $19, $20,
+			$21, $22,
+			$23, $24, $25, $26,
+			$27, $28, $29,
+			$30, $31,
+			$32, $33, $34, $35,
+			$36,
 			NOW(), NOW()
 		)
 		RETURNING %s
@@ -499,22 +506,23 @@ func (r *campaignRepository) Create(ctx context.Context, userID string, orgID *u
 		days,               // $17
 		startTime,          // $18
 		endTime,            // $19
-		senderStrategy,     // $20
-		rotationMode,       // $21
-		rampEnabled,        // $22
-		rampStart,          // $23
-		rampIncrement,      // $24
-		rampCeiling,        // $25
-		espMatchMode,       // $26
-		maxNewLeads,        // $27
-		prioritizeNewLeads, // $28
-		trackingDomain,     // $29
-		kind,               // $30
-		utmTracking,        // $31
-		utmSource,          // $32
-		utmMedium,          // $33
-		utmCampaign,        // $34
-		unsubMode,          // $35
+		scheduleWindows,    // $20
+		senderStrategy,     // $21
+		rotationMode,       // $22
+		rampEnabled,        // $23
+		rampStart,          // $24
+		rampIncrement,      // $25
+		rampCeiling,        // $26
+		espMatchMode,       // $27
+		maxNewLeads,        // $28
+		prioritizeNewLeads, // $29
+		trackingDomain,     // $30
+		kind,               // $31
+		utmTracking,        // $32
+		utmSource,          // $33
+		utmMedium,          // $34
+		utmCampaign,        // $35
+		unsubMode,          // $36
 	}
 
 	row := tx.QueryRow(ctx, insertSQL, params...)

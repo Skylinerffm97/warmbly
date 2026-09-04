@@ -11,6 +11,16 @@ import (
 // RFC 2047-encoding a non-ASCII display name so it does not reach the
 // recipient as mojibake.
 func (c *Client) GetAddress() string {
-	addr := mail.Address{Name: strings.TrimSpace(c.FirstName + " " + c.LastName), Address: c.Email}
+	return c.FromAddress("")
+}
+
+// FromAddress is GetAddress with a per-send display name; empty falls back to
+// the name the client was built with.
+func (c *Client) FromAddress(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.TrimSpace(c.FirstName + " " + c.LastName)
+	}
+	addr := mail.Address{Name: name, Address: c.Email}
 	return mailhdr.Address(addr.String())
 }

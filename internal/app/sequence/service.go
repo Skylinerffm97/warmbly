@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/warmbly/warmbly/internal/errx"
+	"github.com/warmbly/warmbly/internal/infrastructure/storage"
 	"github.com/warmbly/warmbly/internal/models"
 	"github.com/warmbly/warmbly/internal/repository"
 )
@@ -18,10 +19,24 @@ type SequenceService interface {
 
 type sequenceService struct {
 	sequenceRepository repository.SequenceRepository
+	attachmentRepo     repository.AttachmentRepository
+	storage            storage.Store
 }
 
 func NewService(sequenceRepository repository.SequenceRepository) SequenceService {
 	return &sequenceService{
 		sequenceRepository: sequenceRepository,
 	}
+}
+
+// AttachmentAware is implemented by the sequence service so main can hand it
+// the attachment repository and object store. Deleting a step cascades its
+// attachment rows away, so without these the files scoped to that step leave
+// their bytes in storage forever, still counted against the org's quota.
+type AttachmentAware interface {
+	WireAttachments(repo repository.AttachmentRepository, store storage.Store)
+}
+
+func (s *sequenceService) WireAttachments(repo repository.AttachmentRepository, store storage.Store) {
+	s.attachmentRepo, s.storage = repo, store
 }

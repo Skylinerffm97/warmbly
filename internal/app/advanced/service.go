@@ -1994,13 +1994,19 @@ func (s *service) ProcessRetryableDeadLetters(ctx context.Context) (int, *errx.E
 // worstStepContentScore returns the lowest-scoring email step's score, number,
 // leading issue, and how many steps were scored. Only email steps carry copy: a
 // wait or action node would otherwise score as the campaign's worst content.
-func worstStepContentScore(seqs []models.Sequence, attachments int) (worst, worstStep int, issue string, scored int) {
+// attachmentsFor gives the file count of one step's send, which differs per
+// step now that a file can be scoped to one.
+func worstStepContentScore(seqs []models.Sequence, attachmentsFor func(models.Sequence) int) (worst, worstStep int, issue string, scored int) {
 	worst = 101
 	for _, seq := range seqs {
 		if seq.Kind != "" && seq.Kind != "email" {
 			continue
 		}
 		scored++
+		attachments := 0
+		if attachmentsFor != nil {
+			attachments = attachmentsFor(seq)
+		}
 		r := warmlint.ScoreWithAttachments(seq.Subject, seq.BodyHTML, seq.BodyPlain, attachments)
 		if r.Score >= worst {
 			continue
@@ -2047,9 +2053,11 @@ func (s *service) contentScoreCheck(ctx context.Context, campaignID uuid.UUID, f
 		}
 	}
 
-	// Attachments are campaign-wide and the send path scores them, so preflight
-	// weighs them too rather than reporting a score the feed later contradicts.
-	attachments := 0
+	// The send path scores the files each step actually carries, so preflight
+	// counts them the same way (campaign-wide plus that step's own) rather than
+	// reporting a score the feed later contradicts.
+	campaignWide := 0
+	perStep := map[uuid.UUID]int{}
 	if s.attachmentRepo != nil {
 		atts, aerr := s.attachmentRepo.ListByCampaign(ctx, campaignID)
 		if aerr != nil {
@@ -2063,10 +2071,18 @@ func (s *service) contentScoreCheck(ctx context.Context, campaignID uuid.UUID, f
 				Remediation: "Re-run preflight.",
 			}
 		}
-		attachments = len(atts)
+		for _, a := range atts {
+			if a.SequenceID == nil {
+				campaignWide++
+				continue
+			}
+			perStep[*a.SequenceID]++
+		}
 	}
 
-	worst, worstStep, issue, scored := worstStepContentScore(seqs, attachments)
+	worst, worstStep, issue, scored := worstStepContentScore(seqs, func(seq models.Sequence) int {
+		return campaignWide + perStep[seq.ID]
+	})
 	if scored == 0 {
 		return models.PreflightCheckResult{
 			Key:      "content_score",

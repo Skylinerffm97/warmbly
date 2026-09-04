@@ -72,6 +72,9 @@ type SendRequest struct {
 	// Attachments, when present, are encoded as multipart/mixed parts after the
 	// multipart/alternative text body. Warmup sends never carry attachments.
 	Attachments []Attachment
+	// FromName is the display name the control plane holds for the mailbox at
+	// publish time. Empty falls back to the name cached from ADD_EMAIL.
+	FromName string
 }
 
 // buildSendHeaders assembles the outbound custom headers: the warmup
@@ -190,6 +193,7 @@ func (w *WMail) sendViaGmail(ctx context.Context, req *SendRequest, bodyHTML str
 	// Send via Gmail API
 	gmailMsg, err := w.GoogleData.Client.SendMessage(
 		ctx,
+		req.FromName,
 		req.To,
 		req.Cc,
 		req.Bcc,
@@ -260,6 +264,7 @@ func (w *WMail) sendViaGraph(ctx context.Context, req *SendRequest, bodyHTML str
 
 	sentMessageID, err := w.GraphData.Client.SendMessage(
 		ctx,
+		req.FromName,
 		req.To,
 		req.Cc,
 		req.Bcc,
@@ -324,6 +329,7 @@ func (w *WMail) sendViaSMTP(ctx context.Context, req *SendRequest, bodyHTML stri
 	// empty list still selects the same code path.
 	raw, merr := w.SmtpImapData.SmtpClient.Send(
 		ctx,
+		req.FromName,
 		req.To,
 		req.Cc,
 		req.Bcc,

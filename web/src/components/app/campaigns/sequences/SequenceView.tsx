@@ -9,6 +9,7 @@ import { GitBranchIcon, Loader2Icon } from "lucide-react";
 import toast from "react-hot-toast";
 import type Sequence from "@/lib/api/models/app/campaigns/sequences/Sequence";
 import EmailContentEditor from "./EmailContentEditor";
+import StepAttachments from "./StepAttachments";
 import { Label, TextInput } from "@/components/ui/field";
 import useUpdateSequence from "@/lib/api/hooks/app/campaigns/sequences/useUpdateSequence";
 import type { AppError } from "@/lib/api/client/normalizeError";
@@ -123,6 +124,10 @@ export default function SequenceView({
                     onSubjectChange={(v) => patch({ subject: v })}
                     bodyHtml={draft.body_html}
                     onBodyChange={(html, plain) => patch({ body_html: html, body_plain: plain })}
+                    campaignId={campaignId}
+                    stepId={sequence.id}
+                    canSendTest
+                    dirty={savable}
                 />
 
                 {index > 0 && (
@@ -133,6 +138,10 @@ export default function SequenceView({
                             starts a new thread instead of replying in the existing one.
                         </p>
                     </div>
+                )}
+
+                {sequence.kind === "email" && (
+                    <StepAttachments campaignId={campaignId} sequenceId={sequence.id} />
                 )}
             </div>
         </div>
