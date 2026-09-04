@@ -20740,6 +20740,7 @@
         "required": [
           "id",
           "campaign_id",
+          "step_id",
           "filename",
           "created_at"
         ],
