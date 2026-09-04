@@ -13,6 +13,7 @@ import {
     CableIcon,
     CalendarClockIcon,
     CheckSquareIcon,
+    ChevronDownIcon,
     CircleDollarSignIcon,
     FileTextIcon,
     FlameIcon,
@@ -30,7 +31,7 @@ import {
     XIcon,
     ZapIcon,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { useAppStore } from "@/stores";
 import useFeatureAccess from "@/hooks/useFeatureAccess";
 import { usePermission, type PermissionKey } from "@/hooks/usePermission";
@@ -169,6 +170,10 @@ const sections: NavSection[] = [
     },
 ];
 
+function isNavItemActive(pathname: string, item: NavItem): boolean {
+    return pathname === item.url || pathname.startsWith(item.url + "/");
+}
+
 function NavRow({ item }: { item: NavItem }) {
     const { pathname } = useLocation();
     const unseen = useAppStore((s) => s.unseenCount);
@@ -176,8 +181,7 @@ function NavRow({ item }: { item: NavItem }) {
     const hasItemPermission = usePermission(item.permission ?? "VIEW_CAMPAIGNS");
     const [deniedOpen, setDeniedOpen] = useState(false);
     const upgradeDialog = useUpgradeDialog();
-    const active =
-        pathname === item.url || pathname.startsWith(item.url + "/");
+    const active = isNavItemActive(pathname, item);
     const badge = item.badgeStoreKey === "unseenCount" ? unseen : undefined;
 
     // Role-gated items disappear from the sidebar for users that
@@ -580,14 +584,33 @@ function IntegrationsActivity() {
 }
 
 function Section({ section, first = false }: { section: NavSection; first?: boolean }) {
+    const id = useId();
+    const { pathname } = useLocation();
+    const collapsed = useAppStore((s) => s.navCollapsedSections[section.label] ?? false);
+    const toggleNavSection = useAppStore((s) => s.toggleNavSection);
+    const active = section.items.some((item) => isNavItemActive(pathname, item));
+
     return (
         <div className={first ? "" : "mt-4 pt-4 border-t border-slate-200/50"}>
             <div className="px-4 mb-1.5">
-                <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">
+                <button
+                    type="button"
+                    aria-expanded={!collapsed}
+                    aria-controls={id}
+                    onClick={() => toggleNavSection(section.label)}
+                    className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium inline-flex items-center gap-1.5"
+                >
                     {section.label}
-                </span>
+                    {collapsed && active && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" aria-hidden />
+                    )}
+                    <ChevronDownIcon
+                        className={cn("w-3 h-3 transition-transform", collapsed && "rotate-180")}
+                        aria-hidden
+                    />
+                </button>
             </div>
-            <div className="space-y-px">
+            <div id={id} hidden={collapsed} className="space-y-px">
                 {section.items.map((it) => (
                     <NavRow key={it.url} item={it} />
                 ))}

@@ -6,6 +6,7 @@ export interface UISlice {
   // Sidebar
   sidebarCollapsed: boolean
   sidebarMobileOpen: boolean
+  navCollapsedSections: Record<string, boolean>
 
   // Theme
   theme: Theme
@@ -25,6 +26,7 @@ export interface UISlice {
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarMobileOpen: (open: boolean) => void
+  toggleNavSection: (label: string) => void
 
   // Actions - Theme
   setTheme: (theme: Theme) => void
@@ -45,6 +47,17 @@ const getInitialTheme = (): Theme => {
   return (localStorage.getItem('theme') as Theme) || 'system'
 }
 
+const getInitialNavCollapsedSections = (): Record<string, boolean> => {
+  if (typeof window === 'undefined') return {}
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem('nav.collapsedSections') || '{}')
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {}
+    return Object.fromEntries(Object.entries(stored).filter(([, value]) => typeof value === 'boolean'))
+  } catch {
+    return {}
+  }
+}
+
 // The dashboard is light-only today: every surface is styled on white, so a
 // resolved dark theme would flip only the CSS-variable components (command
 // palette, toasts) and look broken. 'dark'/'system' are accepted but resolve
@@ -57,6 +70,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   // Sidebar
   sidebarCollapsed: false,
   sidebarMobileOpen: false,
+  navCollapsedSections: getInitialNavCollapsedSections(),
 
   // Theme
   theme: getInitialTheme(),
@@ -76,6 +90,21 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
     set((state) => (state.sidebarCollapsed === sidebarCollapsed ? state : { sidebarCollapsed })),
   setSidebarMobileOpen: (sidebarMobileOpen) =>
     set((state) => (state.sidebarMobileOpen === sidebarMobileOpen ? state : { sidebarMobileOpen })),
+
+  toggleNavSection: (label) => {
+    const navCollapsedSections = {
+      ...get().navCollapsedSections,
+      [label]: !get().navCollapsedSections[label],
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('nav.collapsedSections', JSON.stringify(navCollapsedSections))
+      } catch {
+        // Keep toggling available when browser storage is unavailable.
+      }
+    }
+    set({ navCollapsedSections })
+  },
 
   // Actions - Theme
   setTheme: (theme) => {
