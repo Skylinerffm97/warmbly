@@ -336,8 +336,7 @@ func RequireAPIKeyEmailAccountParam(param string) gin.HandlerFunc {
 			return
 		}
 
-		allowed := GetAPIKeyAllowedEmailAccounts(c)
-		if len(allowed) == 0 {
+		if len(GetAPIKeyAllowedEmailAccounts(c)) == 0 {
 			c.Next()
 			return
 		}
@@ -349,16 +348,32 @@ func RequireAPIKeyEmailAccountParam(param string) gin.HandlerFunc {
 			return
 		}
 
-		for _, id := range allowed {
-			if id == accountID {
-				c.Next()
-				return
-			}
+		if APIKeyAllowsEmailAccount(c, accountID) {
+			c.Next()
+			return
 		}
 
 		errx.Handle(c, errx.New(errx.Forbidden, "email account is not allowed for this API key"))
 		c.Abort()
 	}
+}
+
+// APIKeyAllowsEmailAccount reports whether the authenticating API key may act
+// on accountID. JWT callers and unrestricted keys always may.
+func APIKeyAllowsEmailAccount(c *gin.Context, accountID uuid.UUID) bool {
+	if c.GetString(AuthTypeKey) != AuthTypeAPIKey {
+		return true
+	}
+	allowed := GetAPIKeyAllowedEmailAccounts(c)
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, id := range allowed {
+		if id == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 // GetAuthType returns "jwt" or "api_key" (empty if unauthenticated).
