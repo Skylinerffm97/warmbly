@@ -160,14 +160,32 @@ export function ThreadView({ threadId, emailId }: ThreadViewProps) {
   const threadLabels = useThreadLabels(threadId);
   const [labelMenuOpen, setLabelMenuOpen] = React.useState(false);
 
-  // CRM context rail (right side). Open by default on wide screens (lg+),
-  // where it renders as a static rail. Below lg it renders as an overlay
-  // drawer, so it starts closed and is opened from the header toggle.
-  const [crmOpen, setCrmOpen] = React.useState(
+  // Persist the rail preference; overlay drawers start closed for each thread.
+  const stored = useAppStore((s) => s.uniboxContactPanelOpen);
+  const setUniboxContactPanelOpen = useAppStore((s) => s.setUniboxContactPanelOpen);
+  const [isWide, setIsWide] = React.useState(
     () =>
       typeof window !== "undefined" &&
       window.matchMedia("(min-width: 1024px)").matches,
   );
+  const [mobileCrmOpen, setMobileCrmOpen] = React.useState(false);
+  React.useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsWide(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  React.useEffect(() => {
+    setMobileCrmOpen(false);
+  }, [threadId]);
+  const crmOpen = isWide ? (stored ?? true) : mobileCrmOpen;
+  const setCrmOpen = (open: boolean) => {
+    // Only the static rail (lg+) carries the remembered preference; the
+    // overlay drawer below lg is per-thread and must not write it.
+    if (isWide) setUniboxContactPanelOpen(open);
+    else setMobileCrmOpen(open);
+  };
 
   // `c` opens the label menu while a thread is open — ignored while
   // typing into the composer / any input so it never eats keystrokes.
@@ -382,7 +400,7 @@ export function ThreadView({ threadId, emailId }: ThreadViewProps) {
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setCrmOpen((o) => !o)}
+            onClick={() => setCrmOpen(!crmOpen)}
             aria-label={crmOpen ? "Hide contact panel" : "Show contact panel"}
             className={
               "inline-flex size-7 rounded-md items-center justify-center transition-colors " +

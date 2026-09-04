@@ -21,6 +21,9 @@ export interface UISlice {
   // AI assistant panel (right-side, persistent across routes)
   aiAssistantOpen: boolean
 
+  // Unibox contact panel (null until the user chooses)
+  uniboxContactPanelOpen: boolean | null
+
   // Actions - Sidebar
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
@@ -38,6 +41,17 @@ export interface UISlice {
   setCommandPaletteOpen: (open: boolean) => void
   setAIAssistantOpen: (open: boolean) => void
   toggleAIAssistant: () => void
+  setUniboxContactPanelOpen: (open: boolean) => void
+}
+
+const getInitialUniboxContactPanelOpen = (): boolean | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const stored = window.localStorage.getItem('unibox.contactPanelOpen')
+    return stored === 'true' ? true : stored === 'false' ? false : null
+  } catch {
+    return null
+  }
 }
 
 const getInitialTheme = (): Theme => {
@@ -69,6 +83,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   shortcutsModalOpen: false,
   commandPaletteOpen: false,
   aiAssistantOpen: false,
+  uniboxContactPanelOpen: getInitialUniboxContactPanelOpen(),
 
   // Actions - Sidebar
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
@@ -102,4 +117,14 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   setAIAssistantOpen: (aiAssistantOpen) =>
     set((state) => (state.aiAssistantOpen === aiAssistantOpen ? state : { aiAssistantOpen })),
   toggleAIAssistant: () => set((state) => ({ aiAssistantOpen: !state.aiAssistantOpen })),
+  setUniboxContactPanelOpen: (uniboxContactPanelOpen) => {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('unibox.contactPanelOpen', String(uniboxContactPanelOpen))
+      } catch {
+        // Keep the in-memory choice when storage is unavailable.
+      }
+    }
+    set((state) => (state.uniboxContactPanelOpen === uniboxContactPanelOpen ? state : { uniboxContactPanelOpen }))
+  },
 })
