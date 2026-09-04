@@ -166,6 +166,76 @@ func TestLiveRealSendsStillSpendTheDailyBudget(t *testing.T) {
 	}
 }
 
+// addClosedHoursMailbox attaches a second active mailbox whose own 8am-8pm
+// band is closed right now, and returns its timezone. Picked from a spread of
+// offsets, so one is always closed at any hour of the day.
+func (f *liveFixture) addClosedHoursMailbox(t *testing.T) *time.Location {
+	t.Helper()
+	ctx := context.Background()
+	var loc *time.Location
+	for _, name := range []string{"Pacific/Honolulu", "America/Los_Angeles", "America/New_York", "Europe/London",
+		"Europe/Berlin", "Asia/Dubai", "Asia/Tokyo", "Pacific/Auckland"} {
+		l, err := time.LoadLocation(name)
+		if err != nil {
+			continue
+		}
+		if h := time.Now().In(l).Hour(); h < 8 || h >= 20 {
+			loc = l
+			break
+		}
+	}
+	if loc == nil {
+		t.Fatal("no timezone in the spread is outside 8am-8pm right now")
+	}
+	mailbox := uuid.New()
+	if _, err := f.pool.Exec(ctx, `INSERT INTO email_accounts (id, user_id, organization_id, email, name,
+	          signature_plain, signature_html, provider, status, campaign_limit, min_wait_time, timezone)
+	      VALUES ($1, $2, $3, $4, 'Closed', '', '', 'smtp_imap', 'active', 50, 600, $5)`,
+		mailbox, f.user, f.org, "closed-"+mailbox.String()[:8]+"@test.local", loc.String()); err != nil {
+		t.Fatalf("add mailbox: %v", err)
+	}
+	t.Cleanup(func() {
+		c := context.Background()
+		_, _ = f.pool.Exec(c, `DELETE FROM campaign_tasks WHERE task_id IN (SELECT id FROM tasks WHERE email_account_id = $1)`, mailbox)
+		_, _ = f.pool.Exec(c, `DELETE FROM tasks WHERE email_account_id = $1`, mailbox)
+		_, _ = f.pool.Exec(c, `DELETE FROM email_accounts WHERE id = $1`, mailbox)
+	})
+	return loc
+}
+
+// TestLiveMixedPoolResumesAtTheEarlierMailbox: one mailbox at its cap and one
+// merely outside its own hours resume when the second reopens, not tomorrow.
+func TestLiveMixedPoolResumesAtTheEarlierMailbox(t *testing.T) {
+	_, pool := liveDB(t)
+	f := newLiveFixture(t, pool, "UTC")
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `UPDATE campaigns SET daily_limit = 1 WHERE id = $1`, f.campaign); err != nil {
+		t.Fatal(err)
+	}
+	f.addSentLead(t)
+	loc := f.addClosedHoursMailbox(t)
+
+	s := loggedScheduler(t, f)
+	at, pair, _, err := s.CalculateNextCampaignTime(ctx, f.campaign)
+	if !errors.Is(err, ErrCampaignDeferred) || pair != nil {
+		t.Fatalf("want a deferral, got err=%v pair=%v", err, pair)
+	}
+	reopen := businessHoursReopen(time.Now(), loc)
+	if at.After(reopen.Add(time.Minute)) {
+		t.Fatalf("deferred to %s, but the second mailbox reopens at %s", at, reopen)
+	}
+	assertFuture(t, at)
+	var logged int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM campaign_logs WHERE campaign_id = $1 AND event_type = 'daily_cap_reached'`,
+		f.campaign).Scan(&logged); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 0 {
+		t.Fatalf("daily_cap_reached logged for a pool that still has a mailbox coming back today")
+	}
+}
+
 // TestLiveDailyCapDefersInsteadOfPausing: with every mailbox at its cap the
 // campaign waits for tomorrow, says so once, and is never paused.
 func TestLiveDailyCapDefersInsteadOfPausing(t *testing.T) {

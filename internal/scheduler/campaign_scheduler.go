@@ -546,15 +546,27 @@ func (s *schedulerService) placeCampaignSend(ctx context.Context, campaign *mode
 	// until midnight are logged once a day, or the feed drowns in them.
 	if len(candidates) == 0 {
 		switch {
-		case budgetSpent > 0:
-			logDecisionOnce("daily_cap_reached",
-				"Every mailbox has used its daily budget; sending resumes tomorrow",
-				map[string]interface{}{"capped_mailboxes": budgetSpent, "pool_size": len(accounts)})
-			return s.deferToNextDay(campaign), nil, accounts[0].ID, ErrCampaignDeferred
-		case hoursClosed > 0:
-			// Routine and short: the mailbox's own 8am-8pm band reopens within
-			// hours, so it earns no line in the activity log.
-			return nextScheduleSlot(reopensAt, windows, campaignTZ), nil, accounts[0].ID, ErrCampaignDeferred
+		case budgetSpent > 0 || hoursClosed > 0:
+			// Resume when the first of them can send again: tomorrow for a
+			// spent budget, the reopening of the mailbox's own 8am-8pm band
+			// otherwise. A closed band is routine and short, so it earns no
+			// line in the activity log; a pool whose every usable mailbox is
+			// capped does.
+			var resume time.Time
+			if budgetSpent > 0 {
+				resume = s.deferToNextDay(campaign)
+			}
+			if hoursClosed > 0 {
+				if open := nextScheduleSlot(reopensAt, windows, campaignTZ); resume.IsZero() || open.Before(resume) {
+					resume = open
+				}
+			}
+			if hoursClosed == 0 {
+				logDecisionOnce("daily_cap_reached",
+					"Every available mailbox has used its daily budget; sending resumes tomorrow",
+					map[string]interface{}{"capped_mailboxes": budgetSpent, "pool_size": len(accounts)})
+			}
+			return resume, nil, accounts[0].ID, ErrCampaignDeferred
 		case lifecycleGated == len(accounts):
 			// Every mailbox is out of cold rotation. Say so rather than letting
 			// the campaign look stalled for no visible reason; they return on
