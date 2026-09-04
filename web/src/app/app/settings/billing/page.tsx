@@ -43,7 +43,7 @@ import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggl
 import PlanCard from "@/components/app/billing/PlanCard";
 import EnterpriseInquiryDialog from "@/components/app/billing/EnterpriseInquiryDialog";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
-import { PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
+import { PAID_PLANS, getPlan, planOrder, type PlanID } from "@/lib/plans";
 import { describeDiscount, fmtMoney, fromMinorUnits, type BillingInterval } from "@/lib/pricing";
 import OverviewTab from "./OverviewTab";
 import CreditsCard from "./CreditsCard";
@@ -150,10 +150,14 @@ export default function BillingSettingsPage() {
         setCodeInput("");
     }
 
-    // Spotlight the best-value plan (the one marketed as most popular), not
-    // whatever happens to sit one rung above the current plan.
-    const recommendedPlan: PlanID =
-        PAID_PLANS.find((id) => getPlan(id).featured) ?? "business";
+    // Spotlight the best-value plan, but never one at or below what the
+    // workspace already pays for: ringing Business as "Best value" for an
+    // Enterprise customer reads as a downgrade pitch. Undefined means no card
+    // is highlighted, which is the right answer on the top plan.
+    const recommendedPlan: PlanID | undefined =
+        PAID_PLANS.find(
+            (id) => getPlan(id).featured && planOrder(id) > planOrder(currentPlan.id),
+        ) ?? PAID_PLANS.find((id) => planOrder(id) > planOrder(currentPlan.id));
 
     // Overview's "Change plan" opens the same full-screen chooser the locked
     // surfaces use, so there is one upgrade experience everywhere.

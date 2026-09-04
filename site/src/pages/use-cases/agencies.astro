@@ -78,7 +78,7 @@ const faq = [
   ['Do I have to manage billing for every client?',
    'You own every workspace subscription as the agency. Clients do not see a Warmbly invoice unless you transfer ownership. Mark up whatever you want at the agency level.'],
   ['Can a client get its own sending infrastructure?',
-   'Yes. By default every paid workspace shares the premium warmup and worker pool. For a client that needs its own reputation surface, you can move it to dedicated workers, each its own machine and IP, carrying only that client\'s mail.'],
+   'Yes. By default every paid workspace shares the premium warmup and worker pool. For a client that needs its own reputation surface, you can move it onto sending infrastructure allocated to that client alone, carrying only their mail, so their reputation is not shared with anyone else. We do not sell or manage IPs as a product.'],
   ['What happens when a client\'s mailbox starts landing in spam?',
    'It steps down the health ladder (Healthy, Watch, Quarantined, Blocked) and is pulled from the shared pool well before mailbox providers penalize it, acting around 10% spam placement rather than 80%, then recovers inside its own workspace.'],
   ['Can clients log in to see their own data?',
