@@ -2,6 +2,7 @@
 // which mailbox signs it). Kept apart from PreviewControls.tsx so that file
 // exports only components and stays fast-refresh friendly.
 
+import React from "react";
 import type Contact from "@/lib/api/models/app/contacts/Contact";
 import type Inbox from "@/lib/api/models/app/emails/Inbox";
 import useCampaignSenders from "@/lib/api/hooks/app/campaigns/useCampaignSenders";
@@ -23,5 +24,15 @@ export function useCampaignSenderInboxes(campaignId: string): { inboxes: Inbox[]
     const emails = useEmails({ query: "", tag: "", limit: 200, enabled: !!campaignId });
     const ids = new Set((senders.data ?? []).filter((s) => s.enabled).map((s) => s.email_account_id));
     const inboxes = emails.emails.filter((e) => ids.has(e.id));
-    return { inboxes, loading: senders.isLoading || emails.isLoading };
+
+    // A workspace can hold more mailboxes than one page, and a sender sitting on
+    // a later one would otherwise be missing from the picker. Keep pulling pages
+    // only while an enabled sender is still unaccounted for.
+    const incomplete = inboxes.length < ids.size;
+    const { hasNextPage, isFetchingNextPage, fetchNextPage } = emails;
+    React.useEffect(() => {
+        if (incomplete && hasNextPage && !isFetchingNextPage) fetchNextPage();
+    }, [incomplete, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+    return { inboxes, loading: senders.isLoading || emails.isLoading || (incomplete && !!hasNextPage) };
 }

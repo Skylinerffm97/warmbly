@@ -251,6 +251,16 @@ func TestAddSignatureSpacing(t *testing.T) {
 		t.Errorf("signature landed outside the document: %q", doc)
 	}
 
+	// HTML tag names are case-insensitive, so a pasted </BODY> counts too.
+	upper := AddSignature("<HTML><BODY><p>Hi</p></BODY></HTML>", "<p>Ana</p>", true)
+	if !strings.HasSuffix(upper, "</BODY></HTML>") || strings.Index(upper, "Ana") > strings.Index(upper, "</BODY>") {
+		t.Errorf("signature landed outside an upper-case document: %q", upper)
+	}
+	spaced := AddSignature("<html><body><p>Hi</p></body ></html>", "<p>Ana</p>", true)
+	if strings.Index(spaced, "Ana") > strings.Index(spaced, "</body >") {
+		t.Errorf("signature landed outside a spaced closing tag: %q", spaced)
+	}
+
 	if plain := AddSignature("Hi", "Ana", false); plain != "Hi\n\nAna" {
 		t.Errorf("plain-text spacing changed: %q", plain)
 	}

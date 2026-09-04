@@ -85,6 +85,8 @@ export default function EmailContentEditor({
     const [serverPreview, setServerPreview] = React.useState<TemplatePreview | null>(null);
     React.useEffect(() => {
         if (tab !== "preview") return;
+        // Responses can land out of order; only the newest request may paint.
+        let active = true;
         const t = setTimeout(() => {
             runPreview({
                 subject,
@@ -94,10 +96,17 @@ export default function EmailContentEditor({
                 ...(campaignId ? { campaign_id: campaignId } : {}),
                 ...(previewMailbox ? { account_id: previewMailbox.id } : {}),
             })
-                .then(setServerPreview)
-                .catch(() => setServerPreview(null));
+                .then((p) => {
+                    if (active) setServerPreview(p);
+                })
+                .catch(() => {
+                    if (active) setServerPreview(null);
+                });
         }, 250);
-        return () => clearTimeout(t);
+        return () => {
+            active = false;
+            clearTimeout(t);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab, subject, bodyHtml, previewContact?.id, campaignId, previewMailbox?.id]);
 
