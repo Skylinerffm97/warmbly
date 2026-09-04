@@ -72,12 +72,15 @@ export default function EmailContentEditor({
     // to the campaign's first enabled sender once the pool has loaded.
     const [previewContact, setPreviewContact] = React.useState<Contact | null>(null);
     const [previewMailbox, setPreviewMailbox] = React.useState<Inbox | null>(null);
+    const [serverPreview, setServerPreview] = React.useState<TemplatePreview | null>(null);
     const senders = useCampaignSenderInboxes(campaignId ?? "");
     // Both picks belong to one campaign, so drop them when this editor is
-    // pointed at a different one, or at none, without remounting.
+    // pointed at a different one, or at none, without remounting. The rendered
+    // panel goes with them: it names a sender and files of the old campaign.
     React.useEffect(() => {
         setPreviewContact(null);
         setPreviewMailbox(null);
+        setServerPreview(null);
     }, [campaignId]);
     React.useEffect(() => {
         if (!campaignId) return;
@@ -88,7 +91,6 @@ export default function EmailContentEditor({
 
     const previewMut = useTemplatePreview();
     const runPreview = previewMut.mutateAsync;
-    const [serverPreview, setServerPreview] = React.useState<TemplatePreview | null>(null);
     React.useEffect(() => {
         if (tab !== "preview") return;
         // Responses can land out of order; only the newest request may paint.
