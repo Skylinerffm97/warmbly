@@ -92,7 +92,9 @@ function Wheel({ digit }: { digit: number }) {
                 }}
             >
                 {DIGITS.map((d) => (
-                    <span key={d} style={{ height: "1em", lineHeight: 1 }}>
+                    // flexShrink pins the geometry: the -Nem offsets below
+                    // assume each digit is exactly 1em tall.
+                    <span key={d} style={{ height: "1em", lineHeight: 1, flexShrink: 0 }}>
                         {d}
                     </span>
                 ))}

@@ -74,6 +74,43 @@ export default function UpgradeDialog({
     // while this one is up. Escape here closes only this layer: any other
     // floating panel or the confirm owns it.
     const cardRef = React.useRef<HTMLDivElement>(null);
+
+    // The card declares aria-modal, so honour it: move focus in on open, keep
+    // Tab inside while it is up, and hand focus back to the trigger on close.
+    // Without this a keyboard or screen-reader user tabs through the page
+    // behind the backdrop and never reaches the plan buttons.
+    React.useEffect(() => {
+        if (!open) return;
+        const previous = document.activeElement as HTMLElement | null;
+        cardRef.current?.focus();
+
+        const onTab = (e: KeyboardEvent) => {
+            if (e.key !== "Tab") return;
+            const card = cardRef.current;
+            if (!card) return;
+            // A nested layer (the enterprise inquiry) owns Tab while it is open.
+            if (document.querySelector("[role='alertdialog']")) return;
+            const focusable = card.querySelectorAll<HTMLElement>(
+                'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            );
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            const active = document.activeElement;
+            if (e.shiftKey && (active === first || active === card)) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && active === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener("keydown", onTab);
+        return () => {
+            document.removeEventListener("keydown", onTab);
+            previous?.focus?.();
+        };
+    }, [open]);
     React.useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -153,6 +190,7 @@ export default function UpgradeDialog({
                         aria-labelledby={titleId}
                         data-floating
                         ref={cardRef}
+                        tabIndex={-1}
                         initial={reduced ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.97 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={reduced ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.98 }}

@@ -48,16 +48,24 @@ export default function useUpgradeFlow() {
     const [pending, setPending] = React.useState<PlanID | null>(null);
 
     // Resolve a catalog plan ("grow") to the server Plan record so we can read
-    // its Stripe price ID / UUID. Matches by name; undefined when the server
-    // has no matching public plan configured.
+    // its Stripe price ID / UUID. Undefined when the server has no matching
+    // public plan configured.
+    //
+    // An exact name match always wins. Plans are operator-configurable, so a
+    // public "Starter Legacy" ordered ahead of "Starter" would otherwise be
+    // picked by the prefix pass and charge the wrong price. The prefix pass is
+    // only a fallback, and only when exactly one plan matches.
     const resolveServerPlan = React.useCallback(
         (catalogId: PlanID): ServerPlan | undefined => {
             const label = getPlan(catalogId).label.toLowerCase().trim();
             const plans = (plansQuery.data ?? []) as ServerPlan[];
-            return plans.find((p) => {
-                const n = (p.name ?? "").toLowerCase().trim();
-                return n === label || n.startsWith(label);
-            });
+            const name = (p: ServerPlan) => (p.name ?? "").toLowerCase().trim();
+
+            const exact = plans.find((p) => name(p) === label);
+            if (exact) return exact;
+
+            const prefixed = plans.filter((p) => name(p).startsWith(label));
+            return prefixed.length === 1 ? prefixed[0] : undefined;
         },
         [plansQuery.data],
     );

@@ -102,7 +102,10 @@ export default function PlanCard({
             ? "Custom volume"
             : `${plan.sendsPerDay.toLocaleString()} emails / day`;
 
-    const showCta = canAct && !below && !isCurrent;
+    // A gated card that does not unlock the requested feature must not offer to
+    // buy it: checkout would succeed and leave the user still locked out of the
+    // thing they clicked.
+    const showCta = canAct && !below && !isCurrent && unlocks;
 
     return (
         <motion.div
@@ -266,6 +269,10 @@ export default function PlanCard({
                 {isCurrent ? (
                     <div className="h-9 rounded-md bg-slate-100 text-slate-400 text-[12.5px] font-medium inline-flex items-center justify-center w-full cursor-default">
                         Current plan
+                    </div>
+                ) : gated && !unlocks ? (
+                    <div className="h-9 text-[11.5px] text-slate-400 inline-flex items-center justify-center w-full text-center px-2">
+                        Does not unlock {feature}
                     </div>
                 ) : below ? (
                     <button
