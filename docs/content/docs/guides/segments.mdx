@@ -53,6 +53,7 @@ Sequences can pin too: the **Add to segment** and **Remove from segment** action
 - **Link to campaign**: attaches the segment to a campaign as a live audience, so contacts who join the segment later become leads on their own. See [below](#linking-a-segment-to-a-campaign).
 - **One-time email**: send one message to the segment without building a sequence. **Campaigns** > **New campaign** > **One-time email** picks the segments, shows how many contacts they resolve to and how long the mailbox pool needs, and sends now or on a date. See [one-time emails](/guides/campaigns/#one-time-emails).
 - **Filter**: the contact list's filter bar has a **Segment** pill, and the same scope carries into an export.
+- **Export**: **Export** on a segment page downloads its members as CSV, XLSX or JSON, either every member, the ones matching the page's filters, or the selected rows.
 - **Duplicate**: the segment menu copies a definition to start a variation from.
 - **Search and export**: the contact search and export accept `segment_ids`, so anything that takes a contact filter can be scoped to a segment.
 
@@ -61,6 +62,8 @@ Sequences can pin too: the **Add to segment** and **Remove from segment** action
 Where **Add to campaign** copies today's members once, a linked segment is a live audience: the campaign keeps enrolling whoever the segment says belongs. Manage the links from the **Segments** button on a campaign's Leads tab; a campaign can link up to 20 segments.
 
 Linking enrols every current member as a lead immediately. From then on, any contact who enters the segment, a new contact, an import, a condition edit, a manual pin-in, or simply drifting into a date or engagement condition, is enrolled automatically; a background check picks up drift about every 2 minutes.
+
+The Leads tab shows every linked segment in a **Linked segments** strip: the segment's name, how many of its members are leads (`120/120`), a **no contacts** mark when it currently matches nobody, and a **held out** count when members were removed from the campaign by hand. Clicking a chip filters the list to that segment's leads; **Add back** re-enrols held-out members.
 
 Enrolment is additive. A contact who later falls out of the segment keeps their lead row and their progress; the link only ever adds. Detaching a segment stops future enrolment but leaves the leads it already added in place. Removing a lead from the campaign by hand is respected too: automatic enrolment will not re-add that contact, even while they still match a linked segment, until you add them back yourself.
 

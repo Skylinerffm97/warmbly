@@ -109,10 +109,12 @@ export function useSetSegmentMembers() {
     });
 }
 
-// Keyed under ["campaigns", id, ...] so the campaign spine refreshes it.
+// Keyed under ["segments"]: the counts move with contact and segment writes,
+// and the campaign spine refreshes it by id, but send and open events (which
+// invalidate ["campaigns", id]) must not recount every linked segment.
 export function useCampaignSegments(campaignId: string | undefined, enabled = true) {
     return useQuery({
-        queryKey: ["campaigns", campaignId, "segments"],
+        queryKey: ["segments", "campaign", campaignId],
         queryFn: () => listCampaignSegments(campaignId as string),
         enabled: enabled && !!campaignId,
     });
@@ -124,9 +126,8 @@ export function useSetCampaignSegments() {
         mutationFn: ({ campaignId, segmentIds }: { campaignId: string; segmentIds: string[] }) =>
             setCampaignSegments(campaignId, segmentIds),
         // Linking enrols leads right away, so the campaign's contact list moves.
-        onSuccess: (_res, vars) =>
+        onSuccess: () =>
             Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["campaigns", vars.campaignId, "segments"] }),
                 queryClient.invalidateQueries({ queryKey: ["contacts"] }),
                 queryClient.invalidateQueries({ queryKey: ["segments"] }),
             ]),
@@ -141,6 +142,7 @@ export function useAddSegmentToCampaign() {
             Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["contacts"] }),
                 queryClient.invalidateQueries({ queryKey: ["campaigns"] }),
+                queryClient.invalidateQueries({ queryKey: ["segments"] }),
             ]),
     });
 }

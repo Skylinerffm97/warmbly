@@ -233,6 +233,8 @@ type SegmentAddToCampaignResult struct {
 	CampaignID uuid.UUID `json:"campaign_id"`
 	Added      int       `json:"added"`
 	Members    int       `json:"members"`
+	// Status is the campaign's status at enrol time, for the wake/restart decision.
+	Status string `json:"-"`
 }
 
 // CampaignSegmentsMax bounds how many segments one campaign can link.
@@ -243,13 +245,16 @@ type CampaignSegmentsWrite struct {
 	SegmentIDs []string `json:"segment_ids"`
 }
 
-// CampaignSegmentLink is one segment linked to a campaign, for the Leads tab.
+// CampaignSegmentLink is one segment linked to a campaign, for the Leads tab;
+// the counts are live: members now, members that are leads, members held out.
 type CampaignSegmentLink struct {
 	SegmentID    uuid.UUID `json:"segment_id"`
 	Name         string    `json:"name"`
 	Color        string    `json:"color"`
 	Description  string    `json:"description"`
 	ContactCount int       `json:"contact_count"`
+	LeadCount    int       `json:"lead_count"`
+	HeldOutCount int       `json:"held_out_count"`
 	LinkedAt     time.Time `json:"linked_at"`
 }
 
