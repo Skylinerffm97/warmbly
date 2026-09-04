@@ -40,9 +40,11 @@ import type { DiscountRedemption } from "@/lib/api/models/app/subscription/Disco
 import buildError from "@/lib/helper/buildError";
 import { TextInput } from "@/components/ui/field";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
+import PlanCard from "@/components/app/billing/PlanCard";
+import PlanComparison from "@/components/app/billing/PlanComparison";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
-import { PLAN_ACCENT_CLASSES, PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
-import { describeDiscount, discountedPrice, fmtMoney, type BillingInterval } from "@/lib/pricing";
+import { PAID_PLANS, getPlan, planOrder, type PlanID } from "@/lib/plans";
+import { describeDiscount, fmtMoney, type BillingInterval } from "@/lib/pricing";
 import OverviewTab from "./OverviewTab";
 import CreditsCard from "./CreditsCard";
 import AIUsageCard from "./AIUsageCard";
@@ -147,6 +149,10 @@ export default function BillingSettingsPage() {
         setCodeInput("");
     }
 
+    // Spotlight the next step up from the current plan.
+    const recommendedPlan: PlanID =
+        PAID_PLANS.find((id) => planOrder(id) > planOrder(currentPlan.id)) ?? "business";
+
     // Overview's "Change plan" opens the same full-screen chooser the locked
     // surfaces use, so there is one upgrade experience everywhere.
     function openPlanChooser() {
@@ -224,31 +230,34 @@ export default function BillingSettingsPage() {
                             <>
                                 <Section
                                     eyebrow="Compare plans"
-                                    description="Same lineup as the public pricing page."
-                                >
-                                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                                        <span className="text-[11.5px] text-slate-500">
-                                            {billingInterval === "annual"
-                                                ? "Annual billing — save 20%."
-                                                : "Monthly billing."}
-                                        </span>
+                                    description="The same lineup as the public pricing page. Switching is prorated and takes effect immediately."
+                                    actions={
                                         <BillingIntervalToggle
                                             interval={billingInterval}
                                             onChange={setBillingInterval}
                                         />
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                                        {PAID_PLANS.map((id) => (
+                                    }
+                                >
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pt-2">
+                                        {PAID_PLANS.map((id, i) => (
                                             <PlanCard
                                                 key={id}
                                                 id={id}
-                                                active={currentPlan.id === id}
+                                                index={i}
+                                                current={currentPlan.id}
+                                                recommended={id === recommendedPlan}
                                                 discount={applied}
                                                 interval={billingInterval}
                                                 pending={flow.pending === id}
-                                                serverPlanId={flow.resolveServerPlan(id)?.id}
-                                                showProration={currentPlan.id !== "free" && currentPlan.id !== id}
-                                                onUpgrade={() => upgrade(id)}
+                                                busy={flow.pending !== null || flow.portalPending}
+                                                ctaVerb={currentPlan.id === "free" ? "Get" : "Switch to"}
+                                                footer={
+                                                    <ProrationNote
+                                                        planId={flow.resolveServerPlan(id)?.id}
+                                                        enabled={currentPlan.id !== "free" && currentPlan.id !== id}
+                                                    />
+                                                }
+                                                onChoose={() => upgrade(id)}
                                             />
                                         ))}
                                     </div>
@@ -259,6 +268,17 @@ export default function BillingSettingsPage() {
                                         <ArrowUpRightIcon className="w-3 h-3" />
                                         Open full pricing page
                                     </Link>
+                                </Section>
+
+                                <Section
+                                    eyebrow="Everything side by side"
+                                    description="Limits are the ones this instance actually enforces, read from the configured plans; anything unset shows the published number."
+                                >
+                                    <PlanComparison
+                                        current={currentPlan.id}
+                                        interval={billingInterval}
+                                        resolveServerPlan={flow.resolveServerPlan}
+                                    />
                                 </Section>
 
                                 <Section
@@ -424,137 +444,6 @@ export default function BillingSettingsPage() {
     );
 }
 
-function PlanCard({
-    id,
-    active,
-    discount,
-    interval,
-    pending,
-    serverPlanId,
-    showProration,
-    onUpgrade,
-}: {
-    id: PlanID;
-    active: boolean;
-    discount?: DiscountPreview | null;
-    interval: BillingInterval;
-    /** This plan's checkout / change is in flight. */
-    pending?: boolean;
-    /** Server plan id, needed to price a switch. */
-    serverPlanId?: string;
-    /** Only paid workspaces switching to a different plan get prorated. */
-    showProration?: boolean;
-    onUpgrade: () => void;
-}) {
-    const plan = getPlan(id);
-    const accent = PLAN_ACCENT_CLASSES[plan.accent];
-    const annual = interval === "annual";
-    const base = annual ? plan.priceAnnual : plan.priceMonthly;
-    const disc = discountedPrice(base, discount);
-    // Empty id disables the query, so a free workspace or the current plan
-    // never hits /subscription/preview-change.
-    const preview = usePreviewPlanChange(showProration && serverPlanId ? serverPlanId : "");
-
-    return (
-        <div
-            className={`rounded-md border bg-white p-3 flex flex-col ${
-                active ? "border-slate-900 shadow-sm" : "border-slate-200"
-            } ${plan.featured && !active ? "ring-1 ring-indigo-200" : ""}`}
-        >
-            <div className="flex items-center gap-1.5 mb-1">
-                <span className={`size-1.5 rounded-full ${accent.dot}`} />
-                <span className="text-[11px] uppercase tracking-[0.1em] font-semibold text-slate-700">
-                    {plan.label}
-                </span>
-                {plan.featured && !active && (
-                    <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-1">
-                        Popular
-                    </span>
-                )}
-                {active && (
-                    <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded px-1">
-                        Current
-                    </span>
-                )}
-            </div>
-            <div className="flex items-baseline gap-1 mb-0.5">
-                {base == null ? (
-                    <span className="text-[18px] font-semibold text-slate-900 tabular-nums">
-                        Custom
-                    </span>
-                ) : disc != null ? (
-                    <>
-                        <span className="text-[18px] font-semibold text-emerald-700 tabular-nums">
-                            ${fmtMoney(disc)}
-                        </span>
-                        <span className="text-[11px] text-slate-400 line-through tabular-nums">
-                            ${fmtMoney(base)}
-                        </span>
-                        <span className="text-[10.5px] text-slate-500">/ mo</span>
-                    </>
-                ) : (
-                    <>
-                        <span className="text-[18px] font-semibold text-slate-900 tabular-nums">
-                            ${fmtMoney(base)}
-                        </span>
-                        <span className="text-[10.5px] text-slate-500">/ mo</span>
-                    </>
-                )}
-            </div>
-            <div className="text-[10px] text-slate-400 mb-2 h-3">
-                {base == null
-                    ? "contact sales"
-                    : annual
-                      ? "billed annually · 20% off"
-                      : "billed monthly"}
-            </div>
-            <ul className="space-y-1 mb-3 flex-1">
-                {plan.bullets.map((b) => (
-                    <li key={b} className="flex items-start gap-1.5 text-[11px] text-slate-700 leading-snug">
-                        <CheckIcon className="w-3 h-3 text-emerald-600 mt-0.5 shrink-0" />
-                        <span>{b}</span>
-                    </li>
-                ))}
-            </ul>
-            {showProration && (
-                <div className="mb-2 rounded border border-slate-200/80 bg-slate-50 px-2 py-1.5 text-[10.5px] leading-snug">
-                    {preview.isPending ? (
-                        <span className="text-slate-400">Pricing this switch…</span>
-                    ) : preview.data ? (
-                        <>
-                            <div className="text-slate-700 tabular-nums">
-                                {preview.data.proration_amount > 0
-                                    ? `Due today: $${fmtMoney(preview.data.proration_amount)}`
-                                    : preview.data.proration_amount < 0
-                                      ? `Credit: $${fmtMoney(Math.abs(preview.data.proration_amount))}`
-                                      : "No charge today"}
-                            </div>
-                            <div className="text-slate-400">
-                                Next bill {fmtDate(preview.data.next_billing_date as unknown as string)}
-                            </div>
-                        </>
-                    ) : (
-                        <span className="text-slate-400">Prorated at switch</span>
-                    )}
-                </div>
-            )}
-            <button
-                type="button"
-                onClick={onUpgrade}
-                disabled={active || pending}
-                className={`h-7 px-2.5 rounded-md text-[11.5px] font-medium transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-60 ${
-                    active
-                        ? "bg-slate-100 text-slate-400 cursor-default"
-                        : "bg-slate-900 hover:bg-slate-800 text-white"
-                }`}
-            >
-                {pending && <Loader2Icon className="w-3 h-3 animate-spin" />}
-                {active ? "Current plan" : id === "enterprise" ? "Contact sales" : "Switch to " + plan.label}
-            </button>
-        </div>
-    );
-}
-
 function RedemptionRow({ row }: { row: DiscountRedemption }) {
     return (
         <tr className="text-slate-700">
@@ -612,3 +501,32 @@ function fmtDate(value?: string | null): string {
     });
 }
 
+// What a switch costs today, shown on each plan card for a paying workspace.
+// An empty id disables the query, so free workspaces and the current plan never
+// hit /subscription/preview-change.
+function ProrationNote({ planId, enabled }: { planId?: string; enabled: boolean }) {
+    const preview = usePreviewPlanChange(enabled && planId ? planId : "");
+    if (!enabled) return null;
+    return (
+        <div className="rounded-md border border-slate-200/80 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-snug">
+            {preview.isPending ? (
+                <span className="text-slate-400">Pricing this switch…</span>
+            ) : preview.data ? (
+                <>
+                    <div className="text-slate-700 tabular-nums font-medium">
+                        {preview.data.proration_amount > 0
+                            ? `Due today $${fmtMoney(preview.data.proration_amount)}`
+                            : preview.data.proration_amount < 0
+                              ? `Credit $${fmtMoney(Math.abs(preview.data.proration_amount))}`
+                              : "No charge today"}
+                    </div>
+                    <div className="text-slate-400">
+                        Next bill {fmtDate(preview.data.next_billing_date as unknown as string)}
+                    </div>
+                </>
+            ) : (
+                <span className="text-slate-400">Prorated at switch</span>
+            )}
+        </div>
+    );
+}

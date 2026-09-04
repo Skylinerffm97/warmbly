@@ -10,7 +10,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import toast from "react-hot-toast";
 import {
     ArrowRightIcon,
@@ -18,9 +18,7 @@ import {
     CheckIcon,
     Loader2Icon,
     LockIcon,
-    MinusIcon,
     ShieldCheckIcon,
-    SparklesIcon,
     TicketIcon,
     XIcon,
 } from "lucide-react";
@@ -32,24 +30,11 @@ import type DiscountPreview from "@/lib/api/models/app/subscription/DiscountPrev
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
 import { WEBSITE_URL } from "@/lib/information";
-import {
-    PAID_PLANS,
-    PLAN_ACCENT_CLASSES,
-    getPlan,
-    isAtLeast,
-    planOrder,
-    type PlanID,
-} from "@/lib/plans";
-import {
-    describeDiscount,
-    discountedPrice,
-    fmtMoney,
-    type BillingInterval,
-} from "@/lib/pricing";
+import { PAID_PLANS, getPlan, isAtLeast, planOrder, type PlanID } from "@/lib/plans";
+import { describeDiscount, type BillingInterval } from "@/lib/pricing";
 import { TextInput } from "@/components/ui/field";
-import RollingNumber from "@/components/ui/RollingNumber";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
-import { cn } from "@/lib/utils";
+import PlanCard from "@/components/app/billing/PlanCard";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -219,7 +204,7 @@ export default function UpgradeDialog({
                                     recommended={id === recommended}
                                     interval={billingInterval}
                                     discount={applied}
-                                    isOwner={access.isOwner}
+                                    canAct={access.isOwner}
                                     pending={flow.pending === id}
                                     busy={busy}
                                     onChoose={() => choose(id)}
@@ -464,271 +449,5 @@ function Hero({
                 )}
             </div>
         </div>
-    );
-}
-
-function PlanCard({
-    id,
-    index,
-    feature,
-    minPlan,
-    current,
-    recommended,
-    interval,
-    discount,
-    isOwner,
-    pending,
-    busy,
-    onChoose,
-}: {
-    id: PlanID;
-    index: number;
-    feature: string;
-    minPlan: PlanID;
-    current: PlanID;
-    recommended: boolean;
-    interval: BillingInterval;
-    discount: DiscountPreview | null;
-    isOwner: boolean;
-    pending: boolean;
-    busy: boolean;
-    onChoose: () => void;
-}) {
-    const reduced = useReducedMotion();
-    const plan = getPlan(id);
-    const accent = PLAN_ACCENT_CLASSES[plan.accent];
-    const unlocks = isAtLeast(id, minPlan);
-    const isCurrent = id === current;
-    const below = planOrder(id) < planOrder(current);
-    const annual = interval === "annual";
-    const base = annual ? plan.priceAnnual : plan.priceMonthly;
-    const disc = discountedPrice(base, discount);
-    const shown = disc ?? base;
-    const custom = base == null;
-    const yearlySaving =
-        plan.priceMonthly != null && plan.priceAnnual != null
-            ? Math.round((plan.priceMonthly - plan.priceAnnual) * 12)
-            : 0;
-
-    // Flipping the interval pulses the price and sweeps a sheen across the
-    // card, staggered so the row reads left to right. Mount is handled by the
-    // entrance animation below, so skip the first run.
-    const priceControls = useAnimationControls();
-    const mounted = React.useRef(false);
-    React.useEffect(() => {
-        if (!mounted.current) {
-            mounted.current = true;
-            return;
-        }
-        if (reduced) return;
-        priceControls.start({
-            scale: [1, 1.05, 1],
-            transition: { duration: 0.5, ease: EASE, delay: index * 0.05 },
-        });
-    }, [interval, reduced, index, priceControls]);
-
-    const sends =
-        plan.sendsPerDay === Number.POSITIVE_INFINITY
-            ? "Custom volume"
-            : `${plan.sendsPerDay.toLocaleString()} emails / day`;
-
-    const showCta = isOwner && !below;
-
-    return (
-        <motion.div
-            initial={reduced ? false : { opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.38, ease: EASE, delay: 0.12 + index * 0.07 }}
-            whileHover={reduced || !unlocks ? undefined : { y: -3 }}
-            className={cn(
-                // `isolate` so the sheen's negative z-index stays above the card
-                // background but below the card's own content.
-                "relative isolate rounded-xl border bg-white p-5 flex flex-col transition-shadow",
-                recommended
-                    ? cn("border-transparent ring-2 bg-gradient-to-b to-white", accent.ring, accent.soft)
-                    : "border-slate-200 hover:shadow-[0_16px_40px_-24px_rgba(15,23,42,0.35)]",
-                !unlocks && "opacity-70",
-            )}
-        >
-            {/* Sheen that sweeps the card when the interval flips. Its own
-                clipping layer so the ribbon above can still overhang. */}
-            <span className="pointer-events-none absolute inset-0 -z-10 rounded-xl overflow-hidden">
-                <AnimatePresence>
-                    {!reduced && (
-                        <motion.span
-                            key={interval}
-                            initial={{ x: "-140%" }}
-                            animate={{ x: "140%" }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.85, ease: "easeOut", delay: index * 0.06 }}
-                            className="absolute inset-y-0 w-2/3 bg-gradient-to-r from-transparent via-slate-900/[0.07] to-transparent"
-                        />
-                    )}
-                </AnimatePresence>
-            </span>
-
-            {recommended && (
-                <motion.span
-                    initial={reduced ? false : { opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, ease: EASE, delay: 0.4 + index * 0.07 }}
-                    className={cn(
-                        "absolute -top-2.5 left-4 inline-flex items-center gap-1 h-5 px-2 rounded-full text-[10px] font-semibold uppercase tracking-[0.08em] text-white",
-                        accent.button,
-                    )}
-                >
-                    <SparklesIcon className="w-2.5 h-2.5" />
-                    Unlocks {feature}
-                </motion.span>
-            )}
-
-            <div className="flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", accent.dot)} />
-                <span className="text-[12px] uppercase tracking-[0.1em] font-semibold text-slate-800">
-                    {plan.label}
-                </span>
-                {isCurrent ? (
-                    <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded px-1">
-                        Current
-                    </span>
-                ) : plan.featured ? (
-                    <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-1">
-                        Popular
-                    </span>
-                ) : null}
-            </div>
-            <p className="mt-1.5 text-[12px] text-slate-500 leading-snug min-h-[32px]">{plan.description}</p>
-
-            {/* Price */}
-            <motion.div
-                animate={priceControls}
-                style={{ transformOrigin: "left bottom" }}
-                className="mt-4 flex items-baseline gap-1.5"
-            >
-                {custom ? (
-                    <span className="text-[30px] font-semibold tracking-[-0.03em] text-slate-900">Custom</span>
-                ) : (
-                    <>
-                        <span
-                            className={cn(
-                                "text-[32px] font-semibold tracking-[-0.03em] tabular-nums leading-none inline-flex items-end",
-                                disc != null ? "text-emerald-700" : "text-slate-900",
-                            )}
-                        >
-                            $
-                            <RollingNumber
-                                value={shown as number}
-                                format={(n) => fmtMoney(Math.round(n * 100) / 100)}
-                            />
-                        </span>
-                        <span className="text-[12px] text-slate-500">/ mo</span>
-                        {disc != null && (
-                            <span className="text-[12px] text-slate-400 line-through tabular-nums">
-                                ${fmtMoney(base as number)}
-                            </span>
-                        )}
-                    </>
-                )}
-            </motion.div>
-            <div className="relative mt-1 h-4 overflow-hidden">
-                <AnimatePresence initial={false} mode="popLayout">
-                    <motion.div
-                        key={interval}
-                        initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={reduced ? { opacity: 0 } : { opacity: 0, y: -12 }}
-                        transition={{ duration: 0.28, ease: EASE, delay: index * 0.04 }}
-                        className="absolute inset-0 flex items-center gap-1.5 text-[11px] text-slate-400 tabular-nums"
-                    >
-                        {custom ? (
-                            "tailored to your volume"
-                        ) : annual ? (
-                            <>
-                                <span>billed annually</span>
-                                {yearlySaving > 0 && (
-                                    <span className="inline-flex items-center h-4 px-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-semibold">
-                                        save ${yearlySaving} / yr
-                                    </span>
-                                )}
-                            </>
-                        ) : (
-                            "billed monthly"
-                        )}
-                    </motion.div>
-                </AnimatePresence>
-            </div>
-
-            {/* Headline limit */}
-            <div className="mt-4 rounded-md bg-slate-50 border border-slate-200/70 px-2.5 py-2 text-[12px] font-medium text-slate-800">
-                {sends}
-            </div>
-
-            <ul className="mt-3 space-y-1.5 flex-1">
-                {plan.bullets.map((b) => (
-                    <li key={b} className="flex items-start gap-1.5 text-[12px] text-slate-700 leading-snug">
-                        <CheckIcon className="w-3 h-3 text-emerald-600 mt-0.5 shrink-0" />
-                        <span>{b}</span>
-                    </li>
-                ))}
-                <li
-                    className={cn(
-                        "flex items-start gap-1.5 text-[12px] leading-snug pt-1.5 mt-1.5 border-t border-slate-200/70",
-                        unlocks ? "text-slate-900 font-medium" : "text-slate-400",
-                    )}
-                >
-                    {unlocks ? (
-                        <CheckIcon className="w-3 h-3 text-emerald-600 mt-0.5 shrink-0" />
-                    ) : (
-                        <MinusIcon className="w-3 h-3 text-slate-300 mt-0.5 shrink-0" />
-                    )}
-                    <span>{unlocks ? `Includes ${feature}` : `Does not include ${feature}`}</span>
-                </li>
-            </ul>
-
-            {/* CTA */}
-            <div className="mt-4">
-                {isCurrent ? (
-                    <div className="h-9 rounded-md bg-slate-100 text-slate-400 text-[12.5px] font-medium inline-flex items-center justify-center w-full cursor-default">
-                        Current plan
-                    </div>
-                ) : below ? (
-                    <div className="h-9 text-[11.5px] text-slate-400 inline-flex items-center justify-center w-full">
-                        Below your current plan
-                    </div>
-                ) : showCta ? (
-                    <button
-                        type="button"
-                        onClick={onChoose}
-                        disabled={busy}
-                        className={cn(
-                            "h-9 w-full rounded-md text-[12.5px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60",
-                            id === "enterprise"
-                                ? "border border-slate-200 hover:border-slate-300 bg-white text-slate-800"
-                                : recommended
-                                  ? accent.button
-                                  : "bg-slate-900 hover:bg-slate-800 text-white",
-                        )}
-                    >
-                        {pending ? (
-                            <>
-                                <Loader2Icon className="w-3.5 h-3.5 animate-spin" />
-                                {id === "enterprise" ? "Opening…" : "Redirecting…"}
-                            </>
-                        ) : id === "enterprise" ? (
-                            <>Talk to sales</>
-                        ) : (
-                            <>
-                                Upgrade to {plan.label}
-                                <ArrowRightIcon className="w-3.5 h-3.5" />
-                            </>
-                        )}
-                    </button>
-                ) : (
-                    <div className="h-9 text-[11.5px] text-slate-400 inline-flex items-center justify-center w-full">
-                        Owner can upgrade
-                    </div>
-                )}
-            </div>
-        </motion.div>
     );
 }
