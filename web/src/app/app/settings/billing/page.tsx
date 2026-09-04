@@ -41,6 +41,7 @@ import buildError from "@/lib/helper/buildError";
 import { TextInput } from "@/components/ui/field";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import PlanCard from "@/components/app/billing/PlanCard";
+import EnterpriseInquiryDialog from "@/components/app/billing/EnterpriseInquiryDialog";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
 import { PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
 import { describeDiscount, fmtMoney, type BillingInterval } from "@/lib/pricing";
@@ -86,6 +87,7 @@ export default function BillingSettingsPage() {
     const [applied, setApplied] = React.useState<DiscountPreview | null>(null);
     const [billingInterval, setBillingInterval] =
         React.useState<BillingInterval>("annual");
+    const [salesOpen, setSalesOpen] = React.useState(false);
 
     const resolvedTab = tabForSlug(tabSlug);
     const tab: BillingTab = resolvedTab ?? "overview";
@@ -166,11 +168,15 @@ export default function BillingSettingsPage() {
     // Upgrade/switch to a plan. A valid promo code rides along to Stripe; the
     // flow picks Checkout, an in-place change, or the portal.
     function upgrade(catalogId: PlanID) {
-        void flow.upgrade(catalogId, {
-            interval: billingInterval,
-            discountCode: applied?.valid ? applied.code : undefined,
-            returnTo: "/app/settings/billing/plans",
-        });
+        void flow
+            .upgrade(catalogId, {
+                interval: billingInterval,
+                discountCode: applied?.valid ? applied.code : undefined,
+                returnTo: "/app/settings/billing/plans",
+            })
+            .then((outcome) => {
+                if (outcome === "contact") setSalesOpen(true);
+            });
     }
 
     return (
@@ -429,6 +435,7 @@ export default function BillingSettingsPage() {
                     </motion.div>
                 </AnimatePresence>
             </div>
+            <EnterpriseInquiryDialog open={salesOpen} onClose={() => setSalesOpen(false)} />
         </SectionShell>
     );
 }

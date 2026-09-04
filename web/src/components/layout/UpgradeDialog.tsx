@@ -35,6 +35,7 @@ import { describeDiscount, type BillingInterval } from "@/lib/pricing";
 import { TextInput } from "@/components/ui/field";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import PlanCard from "@/components/app/billing/PlanCard";
+import EnterpriseInquiryDialog from "@/components/app/billing/EnterpriseInquiryDialog";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -56,6 +57,7 @@ export default function UpgradeDialog({
     const [promoOpen, setPromoOpen] = React.useState(false);
     const [codeInput, setCodeInput] = React.useState("");
     const [applied, setApplied] = React.useState<DiscountPreview | null>(null);
+    const [salesOpen, setSalesOpen] = React.useState(false);
 
     const minPlan = getPlan(request.minPlan ?? "starter");
     const current = getPlan(access.plan).id;
@@ -121,6 +123,7 @@ export default function UpgradeDialog({
             returnTo: window.location.pathname + window.location.search,
         });
         if (outcome === "changed") onClose();
+        if (outcome === "contact") setSalesOpen(true);
     }
 
     const requestClose = () => {
@@ -343,6 +346,13 @@ export default function UpgradeDialog({
                         </div>
                     </motion.div>
                 </motion.div>
+            )}
+            {salesOpen && (
+                <EnterpriseInquiryDialog
+                    key="enterprise-inquiry"
+                    open={salesOpen}
+                    onClose={() => setSalesOpen(false)}
+                />
             )}
         </AnimatePresence>,
         document.body,

@@ -27,7 +27,7 @@ export interface UpgradeOptions {
     returnTo?: string;
 }
 
-export type UpgradeOutcome = "redirect" | "changed" | "portal" | "failed";
+export type UpgradeOutcome = "redirect" | "changed" | "portal" | "contact" | "failed";
 
 const DEFAULT_RETURN = "/app/settings/billing/plans";
 
@@ -64,7 +64,8 @@ export default function useUpgradeFlow() {
 
     const openPortal = React.useCallback(async (): Promise<boolean> => {
         try {
-            const { url } = await toast.promise(portal.mutateAsync(), {
+            // Stripe returns the browser to wherever the portal was opened from.
+            const { url } = await toast.promise(portal.mutateAsync({ return_url: window.location.href }), {
                 loading: "Opening billing portal…",
                 success: "Portal ready",
                 error: (e: AppError) => buildError(e),
@@ -83,7 +84,7 @@ export default function useUpgradeFlow() {
             let outcome: UpgradeOutcome = "failed";
             try {
                 if (catalogId === "enterprise") {
-                    outcome = (await openPortal()) ? "portal" : "failed";
+                    outcome = "contact";
                     return outcome;
                 }
                 const target = resolveServerPlan(catalogId);
