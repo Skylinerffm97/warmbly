@@ -204,9 +204,13 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 		}
 		if errors.Is(err, scheduler.ErrCampaignDeferred) {
 			// A valid contact exists but no eligible mailbox right now (ESP-strict
-			// has no same-provider mailbox, or the daily new-lead cap is reached).
+			// has no same-provider mailbox, the daily new-lead cap is reached, or
+			// every mailbox has spent its daily budget or is outside its hours).
 			// Reschedule at the deferred slot WITHOUT sending and WITHOUT touching
 			// progress / daily counters / rotation — mirrors the daily-limit path.
+			// This task completes without a send, and completing it must not
+			// spend the mailbox's budget either (issue #306): the budget counts
+			// reserved sends, never bare wake-ups.
 			// Capped: the next-due moment can be days out, and until this chain
 			// wakes nothing re-reads the campaign, so leads imported meanwhile
 			// would sit queued until then.
@@ -908,7 +912,7 @@ func autoPauseReason(err error) string {
 	case errors.Is(err, scheduler.ErrDomainAuthFailing):
 		return "Campaign auto-paused: every mailbox is sending from a domain that fails SPF or DMARC authentication"
 	case errors.Is(err, scheduler.ErrNoEligibleMailbox):
-		return "Campaign auto-paused: every mailbox is outside its sending window or over its daily budget"
+		return "Campaign auto-paused: no mailbox can send under its current sending settings (check each mailbox's sending behaviour profile and timezone)"
 	default:
 		return "Campaign auto-paused: no active email accounts available"
 	}
