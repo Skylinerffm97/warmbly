@@ -93,6 +93,8 @@ Turn it off when your provider already saves its own copy of anything submitted 
 
 The same tab sets the **display name**, **reply-to** (empty uses the mailbox address), **signature** in plain text and HTML, and **tags** for grouping. A new display name is on the From header of the next message the mailbox sends, campaign, reply or warmup alike; nothing needs to be reconnected.
 
+The HTML signature is placed in a block of its own one line below the body, so it arrives without the stack of blank lines above it that Apple Mail and Outlook used to show. Put any extra spacing you want inside the signature itself. The plain-text signature follows the body after a single blank line.
+
 ### Custom tracking domain
 
 Open pixels and click links go out on a shared tracking host by default, which means their reputation is the sum of everyone else using it. Pointing a subdomain of the domain you send from at that host puts them on your own name instead.

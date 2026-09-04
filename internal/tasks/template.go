@@ -262,17 +262,24 @@ func previewTemplatesWith(subject, bodyHTML, bodyPlain string, contact models.Co
 	return p
 }
 
-// AddSignature adds signature to email body
+// AddSignature places the mailbox signature under the body. HTML gets its own
+// block with a top margin, not <br><br>: the breaks stacked against the body's
+// own trailing margin and showed as blank lines in Apple Mail and Outlook.
 func AddSignature(body string, signature string, isHTML bool) string {
 	if signature == "" {
 		return body
 	}
 
-	if isHTML {
-		return body + "<br><br>" + signature
+	if !isHTML {
+		return body + "\n\n" + signature
 	}
 
-	return body + "\n\n" + signature
+	block := `<div style="margin-top:16px">` + signature + `</div>`
+	// Trailing content belongs inside the document, as for the pixel and footer.
+	if strings.Contains(body, "</body>") {
+		return strings.Replace(body, "</body>", block+"</body>", 1)
+	}
+	return body + block
 }
 
 // AddOpenTrackingPixel adds an invisible tracking pixel to HTML email.
