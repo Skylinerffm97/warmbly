@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -594,6 +595,7 @@ func main() {
 		trackedLinkRepository = repository.NewTrackedLinkRepository(primaryDB.Pool)
 		instanceChecksDB = primaryDB.Pool
 		instanceSettings = instancesettings.NewService(instancesettings.NewStore(primaryDB.Pool))
+		bootstrapInstanceSettings(ctx, instanceSettings)
 		if err != nil {
 			sentry.CaptureException(err)
 			log.Fatal(err)
@@ -1267,7 +1269,7 @@ func main() {
 		formService.SetLinks(repository.NewFormLinkRepository(primaryDB))
 		formService.SetEvents(formEventRepository)
 		formService.SetDomains(organizationRepoForHandler)
-		go jobs.NewFormEventsRetentionJob(formEventRepository).Start(ctx, 12*time.Hour)
+		go jobs.NewFormEventsRetentionJob(formEventRepository).WireRetention(instanceSettings).Start(ctx, 12*time.Hour)
 		go jobs.NewFormsDomainSweep(organizationRepoForHandler).Start(ctx, time.Hour)
 		// A visibly bad import is filed on the workspace's posture. On its own
 		// it can only reach `watch`, which changes nothing.
@@ -1358,6 +1360,11 @@ func main() {
 		// Delete drops attachment objects and duplicate copies them, so the
 		// campaign service needs the store the attachment handler writes to.
 		if aware, ok := campaignService.(campaign.AttachmentAware); ok {
+			aware.WireAttachments(attachmentRepoForHandler, s3ForHandler)
+		}
+		// Deleting a step cascades its attachment rows away, so the sequence
+		// service needs the same store to drop the objects behind them.
+		if aware, ok := sequenceService.(sequence.AttachmentAware); ok {
 			aware.WireAttachments(attachmentRepoForHandler, s3ForHandler)
 		}
 		// Attaching a lead to a running campaign has to wake that campaign's
@@ -1717,10 +1724,11 @@ func main() {
 		orgTransferScheduler := jobs.NewOrgTransferScheduler(orgTransferJob, 1*time.Hour)
 		go orgTransferScheduler.Start(ctx)
 
-		// Prune audit entries past the retention window (90 days). Bounding the
-		// trail's age also bounds how long PII is retained. auditRepository is
+		// Prune audit entries past the retention window. Bounding the trail's
+		// age also bounds how long PII is retained, so the window is an
+		// instance setting and is read on every pass. auditRepository is
 		// constructed earlier (before authService).
-		auditRetentionJob := jobs.NewAuditRetentionJob(auditRepository, 90*24*time.Hour)
+		auditRetentionJob := jobs.NewAuditRetentionJob(auditRepository).WireRetention(instanceSettings)
 		auditRetentionScheduler := jobs.NewAuditRetentionScheduler(auditRetentionJob, 6*time.Hour)
 		go auditRetentionScheduler.Start(ctx)
 
@@ -2199,4 +2207,34 @@ func (m advisorMembers) MemberPermissions(ctx context.Context, orgID, userID uui
 		return 0, errors.New("not a member of this organization")
 	}
 	return member.Permissions, nil
+}
+
+// bootstrapInstanceSettings applies WARMBLY_SETTINGS_BOOTSTRAP once, on an
+// instance whose settings document has never been written. It is how an
+// unattended install ships its data-control answers (what is imported, what is
+// kept and for how long) with the rest of the environment, so the wizard's
+// choices are in place before the first mailbox is connected instead of being
+// something the operator has to redo in the panel.
+//
+// The body is the same partial document PUT /admin/instance/settings takes.
+// From the first write onwards the panel is authoritative and this is a no-op,
+// so the variable can stay in .env without ever undoing a later edit.
+func bootstrapInstanceSettings(ctx context.Context, svc instancesettings.Service) {
+	raw := strings.TrimSpace(os.Getenv("WARMBLY_SETTINGS_BOOTSTRAP"))
+	if raw == "" || svc == nil {
+		return
+	}
+	var patch instancesettings.Patch
+	if err := json.Unmarshal([]byte(raw), &patch); err != nil {
+		log.Printf("WARMBLY_SETTINGS_BOOTSTRAP is not valid JSON and was ignored: %v", err)
+		return
+	}
+	applied, err := svc.Bootstrap(ctx, patch)
+	if err != nil {
+		log.Printf("WARMBLY_SETTINGS_BOOTSTRAP could not be applied: %v", err)
+		return
+	}
+	if applied {
+		log.Printf("instance settings seeded from WARMBLY_SETTINGS_BOOTSTRAP")
+	}
 }

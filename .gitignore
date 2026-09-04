@@ -11,6 +11,10 @@
 /worker
 /backend
 /seed
+/forms
+/migrate
+/updater
+/warmblyctl
 
 # Test binary, built with `go test -c`
 *.test

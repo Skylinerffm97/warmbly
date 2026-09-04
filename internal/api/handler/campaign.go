@@ -35,6 +35,9 @@ type templatePreviewRequest struct {
 	ContactID  *uuid.UUID `json:"contact_id"`
 	CampaignID *uuid.UUID `json:"campaign_id"`
 	AccountID  *uuid.UUID `json:"account_id"`
+	// The step being previewed, so the attachment list is the one that step
+	// sends. Omitted lists the campaign-wide files only.
+	StepID *uuid.UUID `json:"step_id"`
 }
 
 // orgContact resolves a contact that must belong to orgID; any other id, or an
@@ -68,7 +71,7 @@ func sampleContact() models.Contact {
 // send path would, returning the output plus any parse errors and unresolved
 // tokens. With campaign_id and account_id it also applies the mailbox
 // signature, the opt-out footer and the plain-text rule, and lists the
-// attachments the send carries. No side effects — powers the composer's live
+// attachments the send carries (the campaign-wide files, plus step_id's own). No side effects — powers the composer's live
 // preview + inline validation.
 func (h *Handler) PreviewCampaignTemplate(c *gin.Context) {
 	orgID := middleware.GetOrganizationID(c)
@@ -90,6 +93,9 @@ func (h *Handler) PreviewCampaignTemplate(c *gin.Context) {
 			return
 		}
 		in.Campaign = campaign
+		if req.StepID != nil {
+			in.SequenceID = *req.StepID
+		}
 	}
 	if req.AccountID != nil {
 		if xerr := mailboxAllowed(c, *req.AccountID); xerr != nil {

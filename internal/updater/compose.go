@@ -97,9 +97,32 @@ func (r *Runner) servicesToRecreate(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// recreateSelf moves the updater onto the image it just built. It cannot run
-// `compose up updater` in-process (that stops this container half way), so a
-// detached one-off container from the new image does it a few seconds later.
+// selfImageID is the image id the compose file resolves for the updater
+// service, whether that image was just built or just pulled. It is asked of
+// compose rather than assembled by hand, because the service carries an
+// image: key now and `project-updater` is no longer its tag.
+func (r *Runner) selfImageID(ctx context.Context) string {
+	ref, err := r.composeOutput(ctx, "config", "--images", selfService)
+	if err != nil || ref == "" {
+		// Older compose, or a file with neither key: fall back to the name a
+		// build without an image: key produces.
+		ref = r.cfg.ComposeProject + "-" + selfService
+	}
+	// --images answers one line per service; only one service was asked for.
+	if i := strings.IndexByte(ref, '\n'); i >= 0 {
+		ref = ref[:i]
+	}
+	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", "-f", "{{.Id}}", strings.TrimSpace(ref)).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// recreateSelf moves the updater onto the image it just built or pulled. It
+// cannot run `compose up updater` in-process (that stops this container half
+// way), so a detached one-off container from the new image does it a few
+// seconds later.
 func (r *Runner) recreateSelf(ctx context.Context, job *Job) {
 	running, err := r.composeOutput(ctx, "ps", "-q", selfService)
 	if err != nil || running == "" {
@@ -109,9 +132,8 @@ func (r *Runner) recreateSelf(ctx context.Context, job *Job) {
 	if err != nil {
 		return
 	}
-	builtImage, err := exec.CommandContext(ctx, "docker", "image", "inspect", "-f", "{{.Id}}",
-		r.cfg.ComposeProject+"-"+selfService).Output()
-	if err != nil || strings.TrimSpace(string(currentImage)) == strings.TrimSpace(string(builtImage)) {
+	nextImage := r.selfImageID(ctx)
+	if nextImage == "" || strings.TrimSpace(string(currentImage)) == nextImage {
 		return
 	}
 	r.logf(job, "updater image changed; recreating the updater itself")

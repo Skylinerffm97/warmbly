@@ -110,14 +110,28 @@ Warmbly runs with **no cloud account of any kind**: no AWS, no GCP, no Stripe, n
 Kafka. One command brings up the whole platform on local, open-source pieces:
 
 ```bash
+curl -fsSL https://warmbly.com/install.sh | sh
+```
+
+That pulls the published release images, writes a real `.env`, starts the stack
+and prints the one-time link that claims the instance and makes you its admin.
+No clone, no compiler, under two minutes. Add `--wizard` and it asks where each
+store lives, what is kept and for how long, and how it is backed up. The script
+is checksummed at `install.sh.sha256` if you would rather download, verify and
+read it first, `--dry-run` prints every file it would write without touching
+anything, and `--demo` walks the whole wizard while installing nothing. Full
+flag list: [install](https://docs.warmbly.com/development/install/).
+
+To build it from source instead:
+
+```bash
 git clone https://github.com/warmbly/warmbly && cd warmbly
 make up
 ```
 
-That is the whole install: `make up` waits for the backend and prints a one-time
-link that claims the instance and makes you its admin. You need Docker with
-Compose v2 and about 10 GB of free disk. If anything looks wrong, `make doctor`
-prints the instance state and every failing check.
+Either way you need Docker with Compose v2; the build path also wants about
+10 GB of free disk. If anything looks wrong, `make doctor` prints the instance
+state and every failing check.
 
 From here the
 [self-hosting guide](https://docs.warmbly.com/development/deployment-guide/)
@@ -134,7 +148,9 @@ The full docs live at **[docs.warmbly.com](https://docs.warmbly.com)**.
 
 | Read this | To learn |
 |-----------|----------|
-| [Self-hosting guide](https://docs.warmbly.com/development/deployment-guide/) | Step-by-step install, then production, backups, and scaling the worker fleet |
+| [Install](https://docs.warmbly.com/development/install/) | The one-command install and its wizard: where the data lives, what is kept, how it is backed up |
+| [Self-hosting guide](https://docs.warmbly.com/development/deployment-guide/) | Building from source, then production, backups, and scaling the worker fleet |
+| [Data control](https://docs.warmbly.com/development/data-control/) | Every store's location, every retention window, instance backups, and moving to another host |
 | [First run](https://docs.warmbly.com/development/first-run/) | Claiming the instance, reissuing the setup link, and what to do when accounts already exist |
 | [Accounts and access](https://docs.warmbly.com/development/accounts-and-access/) | Registration modes, inviting people with or without a mail relay, SSO, and recovering access |
 | [`warmblyctl`](https://docs.warmbly.com/development/warmblyctl/) | The operator CLI: creating accounts, setting passwords, granting admin, and instance status |

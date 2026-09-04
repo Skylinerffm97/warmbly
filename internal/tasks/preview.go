@@ -21,6 +21,9 @@ type EmailPreviewInput struct {
 	Contact   models.Contact
 	Campaign  *models.Campaign
 	Account   *models.Email
+	// SequenceID names the step being previewed, so the attachment list is the
+	// one that step sends. Zero lists the campaign-wide files only.
+	SequenceID uuid.UUID
 }
 
 // EmailPreviewFrom is the sender as the recipient will see it.
@@ -70,7 +73,7 @@ func (s *tasksService) PreviewEmail(ctx context.Context, orgID uuid.UUID, in Ema
 		out.From = &EmailPreviewFrom{Name: strings.TrimSpace(in.Account.Name), Email: in.Account.Email}
 	}
 	if in.Campaign != nil && s.attachmentRepo != nil {
-		atts, err := s.attachmentRepo.ListByCampaign(ctx, in.Campaign.ID)
+		atts, err := s.attachmentRepo.ListForStep(ctx, in.Campaign.ID, in.SequenceID)
 		if err != nil {
 			log.Warn().Err(err).Str("campaign_id", in.Campaign.ID.String()).Msg("preview: load campaign attachments failed")
 		}
@@ -106,14 +109,15 @@ func finishBody(bodyHTML, bodyPlain string, textOnly bool, account *models.Email
 	return bodyHTML, bodyPlain
 }
 
-// campaignAttachmentRefs lists the files a campaign send carries, as the refs
-// the worker resolves from object storage. A load failure sends without them
-// rather than failing the send, and is logged.
-func (s *tasksService) campaignAttachmentRefs(ctx context.Context, campaignID uuid.UUID) []models.AttachmentRef {
+// campaignAttachmentRefs lists the files one step's send carries, as the refs
+// the worker resolves from object storage: the campaign-wide files plus the
+// ones scoped to that step (uuid.Nil = campaign-wide only). A load failure
+// sends without them rather than failing the send, and is logged.
+func (s *tasksService) campaignAttachmentRefs(ctx context.Context, campaignID, sequenceID uuid.UUID) []models.AttachmentRef {
 	if s.attachmentRepo == nil {
 		return nil
 	}
-	atts, err := s.attachmentRepo.ListByCampaign(ctx, campaignID)
+	atts, err := s.attachmentRepo.ListForStep(ctx, campaignID, sequenceID)
 	if err != nil {
 		log.Warn().Err(err).Str("campaign_id", campaignID.String()).Msg("Failed to load campaign attachments")
 		return nil

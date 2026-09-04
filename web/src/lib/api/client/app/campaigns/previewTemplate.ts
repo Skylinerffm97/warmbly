@@ -20,7 +20,7 @@ export interface TemplatePreview {
     unresolved?: string[]; // literal {{…}} tokens left after render
     // Present when account_id was given: the sender as recipients see it.
     from?: TemplatePreviewFrom;
-    // Present when campaign_id was given and the campaign has files attached.
+    // Present when campaign_id was given and this step's send carries files.
     attachments?: TemplatePreviewAttachment[];
 }
 
@@ -32,6 +32,9 @@ export interface TemplatePreviewInput {
     contact_id?: string;
     // Applies the campaign's opt-out footer and plain-text rule and lists its attachments.
     campaign_id?: string;
+    // The step being previewed, so the attachments listed are the ones that step
+    // sends (campaign-wide files plus its own). Without it, campaign-wide only.
+    step_id?: string;
     // Applies that mailbox's signature and reports it as the sender.
     account_id?: string;
 }

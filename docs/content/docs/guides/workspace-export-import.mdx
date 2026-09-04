@@ -5,6 +5,10 @@ description: "Move a whole workspace between Warmbly instances, including mailbo
 
 A workspace archive is a single file holding everything one workspace owns. It exists so you can move between instances: a self-hosted install to the cloud, the cloud back to self-hosted, or one self-host to another.
 
+<Callout title="Moving a whole self-hosted instance is a different tool">
+This page moves **one workspace** between two running instances, re-sealing its secrets for the destination's keys. To move an entire self-hosted install (every workspace, its users, its platform admins) use `warmblyctl backup` and `warmblyctl restore`, which carry the database, the blob root and the encryption keys as one bundle. See [data control](/development/data-control/#backups). The two are not interchangeable: a bundle cannot be applied to a single workspace, and this archive cannot restore an instance.
+</Callout>
+
 Everything here lives under **Settings > Data**, and is limited to the workspace owner. An export with credentials contains every mailbox password in the workspace, so it sits at the same level as deleting the workspace.
 
 ## What an archive contains

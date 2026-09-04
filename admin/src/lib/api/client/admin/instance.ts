@@ -111,6 +111,16 @@ export interface InstanceSettings {
         daily_messages_per_mailbox: number;
         daily_messages_per_org: number;
     };
+    // How long event-level history is kept. Every window bounds personal data:
+    // opens and clicks carry a client, a device and a location, funnel events
+    // carry a visitor's path, and the audit trail carries IP addresses, user
+    // agents and change payloads. None of them affect a count or a routing
+    // decision; campaign progress keeps its own summary.
+    retention: {
+        engagement_event_days: number;
+        form_event_days: number;
+        audit_log_days: number;
+    };
     // The sending-domain authentication gate. A mailbox whose domain has been
     // failing SPF or DMARC for longer than the grace window stops sending cold
     // mail and warmup mail until the records are fixed.

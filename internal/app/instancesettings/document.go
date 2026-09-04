@@ -48,6 +48,27 @@ type Sync struct {
 	DailyMessagesPerOrg int `json:"daily_messages_per_org"`
 }
 
+// Retention holds how long event-level history is kept. Every window here
+// bounds personal data: opens and clicks carry a client, a device and a
+// location, funnel events carry a visitor's path, and the audit trail carries
+// IP addresses, user agents and change payloads. Shortening one is the only
+// way an operator can hold less without patching the binary.
+//
+// None of them affect a count, a filter or a routing decision: campaign
+// progress keeps its own summary of opens and clicks, which outlives the
+// per-event log.
+type Retention struct {
+	// EngagementEventDays is how long the per-event open and click logs are
+	// kept.
+	EngagementEventDays int `json:"engagement_event_days"`
+	// FormEventDays is how long form funnel events are kept. Forms analytics
+	// ranges top out at 90 days, so anything shorter than that shortens what
+	// the funnel report can show.
+	FormEventDays int `json:"form_event_days"`
+	// AuditLogDays is how long the audit trail is kept.
+	AuditLogDays int `json:"audit_log_days"`
+}
+
 // Bounds on the domain-authentication grace window. One hour is the shortest
 // window that still absorbs a resolver blip; 30 days is the longest a domain
 // should keep sending cold mail unauthenticated while being warned about it.
@@ -76,6 +97,7 @@ type Document struct {
 	Invitations    Invitations    `json:"invitations"`
 	Access         Access         `json:"access"`
 	Sync           Sync           `json:"sync"`
+	Retention      Retention      `json:"retention"`
 	Deliverability Deliverability `json:"deliverability"`
 	Notifications  Notifications  `json:"notifications"`
 }
@@ -91,6 +113,7 @@ func Defaults() Document {
 			AllowInvitedSignup: true,
 		},
 		Sync:           DefaultSync(),
+		Retention:      DefaultRetention(),
 		Deliverability: DefaultDeliverability(),
 	}
 }
@@ -116,6 +139,37 @@ func DefaultSync() Sync {
 	}
 }
 
+// DefaultRetention is the compiled retention window for each event log.
+func DefaultRetention() Retention {
+	return Retention{
+		EngagementEventDays: config.EngagementEventRetentionDaysDefault,
+		FormEventDays:       config.FormEventsRetentionDaysDefault,
+		AuditLogDays:        config.AuditLogRetentionDaysDefault,
+	}
+}
+
+// Normalize clamps every window into its accepted range. Zero and negative
+// resolve to the compiled default rather than to "keep nothing": a document
+// written before this section existed must not silently start deleting
+// everything on the next sweep.
+func (r *Retention) Normalize() {
+	clamp := func(v, def int) int {
+		if v <= 0 {
+			return def
+		}
+		if v < config.RetentionDaysMin {
+			return config.RetentionDaysMin
+		}
+		if v > config.RetentionDaysMax {
+			return config.RetentionDaysMax
+		}
+		return v
+	}
+	r.EngagementEventDays = clamp(r.EngagementEventDays, config.EngagementEventRetentionDaysDefault)
+	r.FormEventDays = clamp(r.FormEventDays, config.FormEventsRetentionDaysDefault)
+	r.AuditLogDays = clamp(r.AuditLogDays, config.AuditLogRetentionDaysDefault)
+}
+
 // Normalize clamps a document into its accepted range. It is applied on read
 // as well as on write, so a row written by an older version still resolves.
 func (d *Document) Normalize() {
@@ -129,6 +183,7 @@ func (d *Document) Normalize() {
 		d.Invitations.TTLHours = TTLHoursMax
 	}
 	d.Sync.Normalize()
+	d.Retention.Normalize()
 	d.Deliverability.Normalize()
 	d.Notifications.Normalize()
 }
@@ -194,6 +249,11 @@ type Patch struct {
 		DailyMessagesPerMailbox *int `json:"daily_messages_per_mailbox"`
 		DailyMessagesPerOrg     *int `json:"daily_messages_per_org"`
 	} `json:"sync"`
+	Retention *struct {
+		EngagementEventDays *int `json:"engagement_event_days"`
+		FormEventDays       *int `json:"form_event_days"`
+		AuditLogDays        *int `json:"audit_log_days"`
+	} `json:"retention"`
 	Deliverability *struct {
 		EnforceDomainAuth *bool `json:"enforce_domain_auth"`
 		AuthGraceHours    *int  `json:"auth_grace_hours"`
@@ -236,6 +296,17 @@ func (p Patch) Apply(doc Document) Document {
 		}
 		if p.Sync.DailyMessagesPerOrg != nil {
 			doc.Sync.DailyMessagesPerOrg = *p.Sync.DailyMessagesPerOrg
+		}
+	}
+	if p.Retention != nil {
+		if p.Retention.EngagementEventDays != nil {
+			doc.Retention.EngagementEventDays = *p.Retention.EngagementEventDays
+		}
+		if p.Retention.FormEventDays != nil {
+			doc.Retention.FormEventDays = *p.Retention.FormEventDays
+		}
+		if p.Retention.AuditLogDays != nil {
+			doc.Retention.AuditLogDays = *p.Retention.AuditLogDays
 		}
 	}
 	if p.Deliverability != nil {

@@ -4,11 +4,13 @@
   "root": true,
   "pages": [
     "---Self-hosting---",
+    "install",
     "deployment-guide",
     "bare-metal",
     "first-run",
     "accounts-and-access",
     "warmblyctl",
+    "data-control",
     "configuration",
     "instance-health",
     "operator-notifications",

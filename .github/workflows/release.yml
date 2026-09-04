@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, consumer, worker]
+        service: [backend, consumer, worker, forms, updater]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -220,10 +220,45 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The manifest step logs in to GHCR and inspects each published image;
+      # without read access that fails on a private package.
+      packages: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # The installer verifies what it pulled against this file, so it is what
+      # makes "curl | sh" checkable after the fact rather than only before it.
+      # One line per service, because the thing that reads it is a POSIX shell.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the image manifest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          {
+            printf '{\n'
+            printf '  "tag": "%s",\n' "$TAG"
+            printf '  "registry": "%s",\n' "$IMAGE_PREFIX"
+            printf '  "images": {\n'
+            first=1
+            for s in backend consumer worker forms updater web admin tracking realtime; do
+              digest=$(docker buildx imagetools inspect "$IMAGE_PREFIX/$s:$TAG" \
+                --format '{{json .Manifest.Digest}}' | tr -d '"')
+              [ "$first" = 1 ] || printf ',\n'
+              first=0
+              printf '    "%s": "%s"' "$s" "$digest"
+            done
+            printf '\n  }\n}\n'
+          } > /tmp/images.json
+          cat /tmp/images.json
 
       - name: Generate release notes
         env:
@@ -240,6 +275,23 @@ jobs:
             cat /tmp/changelog.md
             cat <<'EOF'
 
+          ## Install
+
+          ```
+          curl -fsSL https://warmbly.com/install.sh | sh -s -- --version ${{ github.ref_name }}
+          ```
+
+          Add `--wizard` to be asked where each store lives, what is kept and
+          for how long, and how it is backed up.
+
+          `images.json` below lists the manifest digest of every image in this
+          release. The installer checks what it pulled against it, and you can
+          too:
+
+          ```
+          docker image inspect ${{ env.IMAGE_PREFIX }}/backend:${{ github.ref_name }} --format '{{index .RepoDigests 0}}'
+          ```
+
           ## Docker Images
 
           All images are available at `ghcr.io/${{ github.repository_owner }}/warmbly`:
@@ -253,6 +305,8 @@ jobs:
           | Realtime | `${{ env.IMAGE_PREFIX }}/realtime:${{ github.ref_name }}` |
           | Dashboard (web) | `${{ env.IMAGE_PREFIX }}/web:${{ github.ref_name }}` |
           | Admin | `${{ env.IMAGE_PREFIX }}/admin:${{ github.ref_name }}` |
+          | Forms | `${{ env.IMAGE_PREFIX }}/forms:${{ github.ref_name }}` |
+          | Updater | `${{ env.IMAGE_PREFIX }}/updater:${{ github.ref_name }}` |
 
           ## Deployment
 
@@ -266,5 +320,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body_path: /tmp/release-body.md
+          files: /tmp/images.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
