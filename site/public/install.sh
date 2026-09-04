@@ -488,8 +488,16 @@ now_s() { date +%s; }
 # path so that --yes and the environment variables reach the same code.
 # ─────────────────────────────────────────────────────────────────────────
 
-raw_on()  { [ "$INTERACTIVE" = 1 ] && stty raw -echo <"$TTY" 2>/dev/null || true; }
-raw_off() { [ "$INTERACTIVE" = 1 ] && stty -raw echo <"$TTY" 2>/dev/null || true; }
+# A terminal that cannot be put into raw mode is not fatal: the menus still
+# draw, they just read a whole line instead of a keypress.
+raw_on() {
+    [ "$INTERACTIVE" = 1 ] || return 0
+    stty raw -echo <"$TTY" 2>/dev/null || true
+}
+raw_off() {
+    [ "$INTERACTIVE" = 1 ] || return 0
+    stty -raw echo <"$TTY" 2>/dev/null || true
+}
 
 # read_key leaves the decimal code of one keypress in KEY. Arrow keys arrive
 # as three bytes; the escape prefix is consumed here so callers only ever see
@@ -2938,7 +2946,9 @@ parse_args() {
 }
 
 need_value() {
-    [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value"
+    if [ $# -lt 2 ] || [ -z "$2" ]; then
+        die "$1 needs a value"
+    fi
     printf '%s' "$2"
 }
 

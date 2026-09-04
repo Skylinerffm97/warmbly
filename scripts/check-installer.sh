@@ -34,9 +34,12 @@ else
   pass "parses (dash not installed; POSIX check was approximate)"
 fi
 
+# The version is printed because it matters: SC2015 and friends move between
+# releases, so a local run that passes on a newer shellcheck than CI's is not
+# the same check. When CI disagrees with you, this line is why.
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -s sh "$SCRIPT" || fail "shellcheck found problems in the installer"
-  pass "shellcheck clean"
+  pass "shellcheck clean ($(shellcheck --version | awk '/^version:/ {print $2}'))"
 else
   echo "· shellcheck not installed; skipped"
 fi
