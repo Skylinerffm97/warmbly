@@ -2,6 +2,7 @@ import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
 import getCampaigns from "@/lib/api/client/app/campaigns/getCampaigns";
 import { DEFAULT_PAGINATION_LIMIT } from "@/lib/information";
 import type GetCampaigns from "@/lib/api/models/app/campaigns/GetCampaigns";
+import useRealtimeFallbackInterval from "@/hooks/useRealtimeFallback";
 
 interface UseCampaignsProps {
     query: string;
@@ -11,6 +12,10 @@ interface UseCampaignsProps {
 }
 
 export default function useCampaigns({ query, folder, limit = DEFAULT_PAGINATION_LIMIT, enabled = true }: UseCampaignsProps) {
+    // Send counts on these cards move on realtime invalidation, so the long
+    // staleTime below is free while the socket is up and strands the list for
+    // five minutes when it is not. Poll only in that second case.
+    const refetchInterval = useRealtimeFallbackInterval(enabled);
     const queryResult = useInfiniteQuery<
         GetCampaigns,
         Error,
@@ -29,6 +34,7 @@ export default function useCampaigns({ query, folder, limit = DEFAULT_PAGINATION
         },
         staleTime: 5 * 60 * 1000,
         gcTime: 10 * 60 * 1000,
+        refetchInterval,
         enabled,
     });
 
