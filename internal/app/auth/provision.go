@@ -105,6 +105,23 @@ func (s *authService) createAccount(ctx context.Context, address, passwordHash, 
 		}
 	}
 
+	if s.opsNotify != nil {
+		workspace := ""
+		if org != nil {
+			workspace = org.Name
+		}
+		s.opsNotify.NotifyOperator(
+			"user.registered",
+			"New signup: "+u.Email,
+			"A new account finished signing up.",
+			map[string]string{
+				"Email":     u.Email,
+				"Name":      strings.TrimSpace(u.FirstName + " " + u.LastName),
+				"Workspace": workspace,
+			},
+		)
+	}
+
 	return u, nil
 }
 

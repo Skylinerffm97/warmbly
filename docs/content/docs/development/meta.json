@@ -11,6 +11,7 @@
     "warmblyctl",
     "configuration",
     "instance-health",
+    "operator-notifications",
     "updates",
     "troubleshooting",
     "---Development---",
