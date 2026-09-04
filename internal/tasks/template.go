@@ -233,7 +233,13 @@ var unresolvedToken = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 // send path does (template render + spintax), and reports parse errors plus any
 // tokens that did not resolve.
 func PreviewTemplates(subject, bodyHTML, bodyPlain string, contact models.Contact) TemplatePreview {
-	extra := map[string]string{UnsubscribeLinkVar: PreviewUnsubscribeLink}
+	return previewTemplatesWith(subject, bodyHTML, bodyPlain, contact, PreviewUnsubscribeLink)
+}
+
+// previewTemplatesWith is PreviewTemplates with the unsubscribe link the
+// {{unsubscribe_link}} variable resolves to.
+func previewTemplatesWith(subject, bodyHTML, bodyPlain string, contact models.Contact, unsubscribeURL string) TemplatePreview {
+	extra := map[string]string{UnsubscribeLinkVar: unsubscribeURL}
 	p := TemplatePreview{
 		Subject:   expandSpintax(RenderTemplateWith(subject, contact, extra)),
 		BodyHTML:  expandSpintax(RenderTemplateWith(bodyHTML, contact, extra)),

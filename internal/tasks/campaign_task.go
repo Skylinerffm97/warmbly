@@ -415,21 +415,7 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 
 	// Load campaign attachments (campaign-wide; metadata only — the worker
 	// fetches the bytes from object storage by S3 key at send time).
-	var attachmentRefs []models.AttachmentRef
-	if s.attachmentRepo != nil {
-		atts, attErr := s.attachmentRepo.ListByCampaign(ctx, campaign.ID)
-		if attErr != nil {
-			log.Warn().Err(attErr).Str("campaign_id", campaign.ID.String()).Str("task_id", taskID.String()).Msg("Failed to load campaign attachments")
-		} else {
-			for _, a := range atts {
-				attachmentRefs = append(attachmentRefs, models.AttachmentRef{
-					S3Key:    a.S3Key,
-					Filename: a.Filename,
-					MimeType: a.MimeType,
-				})
-			}
-		}
-	}
+	attachmentRefs := s.campaignAttachmentRefs(ctx, campaign.ID)
 
 	// STEP 7.5: Update campaign task with contact_id and sequence_id for tracking
 	// This allows the tracking consumer to find the correct contact/sequence when

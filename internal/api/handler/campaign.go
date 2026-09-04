@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -16,7 +17,9 @@ import (
 )
 
 // templatePreviewRequest is the composer's preview/validate payload: the raw
-// templates plus an optional sample contact to render against.
+// templates plus, optionally, the context of the real send: a contact of the
+// organization to render for (or ad-hoc sample overrides), the campaign whose
+// opt-out footer and attachments apply, and the mailbox whose signature does.
 type templatePreviewRequest struct {
 	Subject   string `json:"subject"`
 	BodyHTML  string `json:"body_html"`
@@ -29,6 +32,25 @@ type templatePreviewRequest struct {
 		Phone        string            `json:"phone"`
 		CustomFields map[string]string `json:"custom_fields"`
 	} `json:"contact"`
+	ContactID  *uuid.UUID `json:"contact_id"`
+	CampaignID *uuid.UUID `json:"campaign_id"`
+	AccountID  *uuid.UUID `json:"account_id"`
+}
+
+// orgContact resolves a contact that must belong to orgID; any other id, or an
+// unknown one, is not found.
+func (h *Handler) orgContact(ctx context.Context, orgID, contactID uuid.UUID) (*models.Contact, *errx.Error) {
+	if h.ContactRepo == nil {
+		return nil, errx.ErrNotFound
+	}
+	found, xerr := h.ContactRepo.GetByIDsAndOrganization(ctx, orgID, []uuid.UUID{contactID})
+	if xerr != nil {
+		return nil, xerr
+	}
+	if len(found) == 0 {
+		return nil, errx.New(errx.NotFound, "contact not found")
+	}
+	return &found[0], nil
 }
 
 func sampleContact() models.Contact {
@@ -42,17 +64,64 @@ func sampleContact() models.Contact {
 	}
 }
 
-// PreviewCampaignTemplate renders subject/body against a sample (or supplied)
-// contact EXACTLY as the send path would, returning the output plus any parse
-// errors and unresolved tokens. No side effects — powers the composer's live
+// PreviewCampaignTemplate renders subject/body for a contact EXACTLY as the
+// send path would, returning the output plus any parse errors and unresolved
+// tokens. With campaign_id and account_id it also applies the mailbox
+// signature, the opt-out footer and the plain-text rule, and lists the
+// attachments the send carries. No side effects — powers the composer's live
 // preview + inline validation.
 func (h *Handler) PreviewCampaignTemplate(c *gin.Context) {
+	orgID := middleware.GetOrganizationID(c)
+	if orgID == nil {
+		errx.JSON(c, errx.ErrNoOrganization)
+		return
+	}
 	var req templatePreviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errx.JSON(c, errx.ErrInvalid)
 		return
 	}
+
+	in := tasks.EmailPreviewInput{Subject: req.Subject, BodyHTML: req.BodyHTML, BodyPlain: req.BodyPlain}
+	if req.CampaignID != nil {
+		campaign, xerr := h.CampaignService.Get(c.Request.Context(), orgID.String(), req.CampaignID.String())
+		if xerr != nil {
+			errx.JSON(c, xerr)
+			return
+		}
+		in.Campaign = campaign
+	}
+	if req.AccountID != nil {
+		if xerr := mailboxAllowed(c, *req.AccountID); xerr != nil {
+			errx.JSON(c, xerr)
+			return
+		}
+		account, xerr := h.EmailService.Get(c.Request.Context(), orgID.String(), req.AccountID.String())
+		if xerr != nil {
+			errx.JSON(c, xerr)
+			return
+		}
+		in.Account = account
+	}
+
 	contact := sampleContact()
+	if req.ContactID != nil {
+		// Rendering a real contact reads its fields back, so it takes the
+		// contacts read permission on top of the route's campaigns one.
+		if xerr := h.hasAccess(c, models.PermViewContacts, models.APIPermReadContacts); xerr != nil {
+			errx.JSON(c, xerr)
+			return
+		}
+		found, xerr := h.orgContact(c.Request.Context(), *orgID, *req.ContactID)
+		if xerr != nil {
+			errx.JSON(c, xerr)
+			return
+		}
+		contact = *found
+		if contact.CustomFields == nil {
+			contact.CustomFields = map[string]string{}
+		}
+	}
 	if rc := req.Contact; rc != nil {
 		if rc.FirstName != "" {
 			contact.FirstName = rc.FirstName
@@ -73,7 +142,8 @@ func (h *Handler) PreviewCampaignTemplate(c *gin.Context) {
 			contact.CustomFields[k] = v
 		}
 	}
-	c.JSON(http.StatusOK, tasks.PreviewTemplates(req.Subject, req.BodyHTML, req.BodyPlain, contact))
+	in.Contact = contact
+	c.JSON(http.StatusOK, h.TasksService.PreviewEmail(c.Request.Context(), *orgID, in))
 }
 
 func (h *Handler) CreateCampaign(c *gin.Context) {
