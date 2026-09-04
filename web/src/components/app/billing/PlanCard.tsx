@@ -150,7 +150,7 @@ export default function PlanCard({
                     )}
                 >
                     <SparklesIcon className="w-2.5 h-2.5" />
-                    {feature ? `Unlocks ${feature}` : "Recommended"}
+                    {feature ? `Unlocks ${feature}` : "Best value"}
                 </motion.span>
             )}
 
@@ -163,8 +163,9 @@ export default function PlanCard({
                     <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded px-1">
                         Current
                     </span>
-                ) : plan.featured ? (
-                    <span className="ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-1">
+                ) : plan.featured && !recommended ? (
+                    // The ribbon already says it; two badges on one card reads as noise.
+                    <span className={cn("ml-auto text-[9px] uppercase tracking-[0.08em] font-semibold border rounded px-1", accent.pill)}>
                         Popular
                     </span>
                 ) : null}

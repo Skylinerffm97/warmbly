@@ -22,9 +22,12 @@ export interface PlanDef {
     /** Marketing-page bullets shown in the upgrade card + billing page. */
     bullets: string[];
     /** Dashboard accent color for the PlanPill + sidebar badges. */
-    accent: "slate" | "green" | "orange" | "indigo" | "gradient";
-    /** Whether this plan unlocks dedicated IPs. */
-    dedicatedIps: boolean;
+    accent: "slate" | "green" | "orange" | "sky" | "ink";
+    /** Whether this plan's sending runs on infrastructure bound to this
+     *  organization alone (plan.DedicatedWorkers > 0 server-side). What it
+     *  buys is reputation isolation, not an IP-management product, so never
+     *  describe it as a "dedicated IP". */
+    isolatedSending: boolean;
     /** Featured / "most popular" on the pricing page. */
     featured?: boolean;
 }
@@ -39,7 +42,7 @@ export const PLAN_CATALOG: Record<PlanID, PlanDef> = {
         sendsPerDay: 0,
         bullets: ["Up to 10 mailboxes with warmup", "Link self-hosted instances", "No sending"],
         accent: "slate",
-        dedicatedIps: false,
+        isolatedSending: false,
     },
     starter: {
         id: "starter",
@@ -50,7 +53,7 @@ export const PLAN_CATALOG: Record<PlanID, PlanDef> = {
         sendsPerDay: 150,
         bullets: ["Unlimited warmup", "Unlimited mailboxes", "150 emails / day"],
         accent: "green",
-        dedicatedIps: false,
+        isolatedSending: false,
     },
     grow: {
         id: "grow",
@@ -61,7 +64,7 @@ export const PLAN_CATALOG: Record<PlanID, PlanDef> = {
         sendsPerDay: 3_000,
         bullets: ["Unlimited warmup", "Unlimited mailboxes", "3,000 emails / day"],
         accent: "orange",
-        dedicatedIps: false,
+        isolatedSending: false,
     },
     business: {
         id: "business",
@@ -74,10 +77,10 @@ export const PLAN_CATALOG: Record<PlanID, PlanDef> = {
             "Unlimited warmup",
             "Unlimited mailboxes",
             "15,000 emails / day",
-            "Dedicated IPs",
+            "Sending kept apart from other customers",
         ],
-        accent: "indigo",
-        dedicatedIps: true,
+        accent: "sky",
+        isolatedSending: true,
         featured: true,
     },
     enterprise: {
@@ -91,11 +94,11 @@ export const PLAN_CATALOG: Record<PlanID, PlanDef> = {
             "Unlimited warmup",
             "Unlimited mailboxes",
             "15,000+ emails / day",
-            "Dedicated IPs",
+            "Sending kept apart from other customers",
             "Dedicated support",
         ],
-        accent: "gradient",
-        dedicatedIps: true,
+        accent: "ink",
+        isolatedSending: true,
     },
 };
 
@@ -151,20 +154,20 @@ export const PLAN_ACCENT_CLASSES: Record<PlanDef["accent"], {
         soft: "from-amber-50",
         button: "bg-amber-600 hover:bg-amber-700 text-white",
     },
-    indigo: {
-        pill: "bg-indigo-50 text-indigo-700 border-indigo-100",
-        dot: "bg-indigo-500",
-        header: "bg-indigo-50 text-indigo-700 border-indigo-100",
-        ring: "ring-indigo-500 shadow-[0_24px_60px_-24px_rgba(99,102,241,0.55)]",
-        soft: "from-indigo-50",
-        button: "bg-indigo-600 hover:bg-indigo-700 text-white",
+    sky: {
+        pill: "bg-sky-50 text-sky-700 border-sky-100",
+        dot: "bg-sky-500",
+        header: "bg-sky-50 text-sky-700 border-sky-100",
+        ring: "ring-sky-500 shadow-[0_24px_60px_-24px_rgba(14,165,233,0.4)]",
+        soft: "from-sky-50",
+        button: "bg-sky-600 hover:bg-sky-700 text-white",
     },
-    gradient: {
-        pill: "bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-blue-100",
-        dot: "bg-gradient-to-r from-blue-500 to-purple-500",
-        header: "bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-blue-100",
-        ring: "ring-purple-500 shadow-[0_24px_60px_-24px_rgba(147,51,234,0.5)]",
-        soft: "from-purple-50",
-        button: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white",
+    ink: {
+        pill: "bg-slate-900 text-white border-slate-900",
+        dot: "bg-slate-900",
+        header: "bg-slate-900 text-white border-slate-900",
+        ring: "ring-slate-900 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)]",
+        soft: "from-slate-100",
+        button: "bg-slate-900 hover:bg-slate-800 text-white",
     },
 };

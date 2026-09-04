@@ -41,9 +41,8 @@ import buildError from "@/lib/helper/buildError";
 import { TextInput } from "@/components/ui/field";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import PlanCard from "@/components/app/billing/PlanCard";
-import PlanComparison from "@/components/app/billing/PlanComparison";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
-import { PAID_PLANS, getPlan, planOrder, type PlanID } from "@/lib/plans";
+import { PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
 import { describeDiscount, fmtMoney, type BillingInterval } from "@/lib/pricing";
 import OverviewTab from "./OverviewTab";
 import CreditsCard from "./CreditsCard";
@@ -149,9 +148,10 @@ export default function BillingSettingsPage() {
         setCodeInput("");
     }
 
-    // Spotlight the next step up from the current plan.
+    // Spotlight the best-value plan (the one marketed as most popular), not
+    // whatever happens to sit one rung above the current plan.
     const recommendedPlan: PlanID =
-        PAID_PLANS.find((id) => planOrder(id) > planOrder(currentPlan.id)) ?? "business";
+        PAID_PLANS.find((id) => getPlan(id).featured) ?? "business";
 
     // Overview's "Change plan" opens the same full-screen chooser the locked
     // surfaces use, so there is one upgrade experience everywhere.
@@ -268,17 +268,6 @@ export default function BillingSettingsPage() {
                                         <ArrowUpRightIcon className="w-3 h-3" />
                                         Open full pricing page
                                     </Link>
-                                </Section>
-
-                                <Section
-                                    eyebrow="Everything side by side"
-                                    description="Limits are the ones this instance actually enforces, read from the configured plans; anything unset shows the published number."
-                                >
-                                    <PlanComparison
-                                        current={currentPlan.id}
-                                        interval={billingInterval}
-                                        resolveServerPlan={flow.resolveServerPlan}
-                                    />
                                 </Section>
 
                                 <Section

@@ -18,7 +18,6 @@ import {
     FileTextIcon,
     InfoIcon,
     Loader2Icon,
-    LockIcon,
     PlayIcon,
     SlidersHorizontalIcon,
     SparklesIcon,
@@ -30,21 +29,19 @@ import { useConfirm } from "@/hooks/context/confirm";
 import useSubscription from "@/lib/api/hooks/app/subscription/useSubscription";
 import useSubscriptionLimits from "@/lib/api/hooks/app/subscription/useSubscriptionLimits";
 import useTrialStatus from "@/lib/api/hooks/app/subscription/useTrialStatus";
-import useFeatureStatus from "@/lib/api/hooks/app/subscription/useFeatureStatus";
 import useCancelSubscription from "@/lib/api/hooks/app/subscription/useCancelSubscription";
 import useOrganizationLimits from "@/lib/api/hooks/app/organizations/useOrganizationLimits";
 import useUsageOverview from "@/lib/api/hooks/app/analytics/useUsageOverview";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
 import { AnimatedNumber, DitherMeter, type DitherTone } from "@/components/ui/dither";
-import { PLAN_ACCENT_CLASSES, getPlan, type PlanID } from "@/lib/plans";
+import { PLAN_ACCENT_CLASSES, getPlan } from "@/lib/plans";
 import { Section } from "../_components/SectionShell";
 
 export default function OverviewTab({ onChangePlan }: { onChangePlan: () => void }) {
     const access = useFeatureAccess();
     const sub = useSubscription();
     const trial = useTrialStatus();
-    const features = useFeatureStatus();
     const subLimits = useSubscriptionLimits();
     const orgLimits = useOrganizationLimits();
     const usage = useUsageOverview().data;
@@ -307,74 +304,6 @@ export default function OverviewTab({ onChangePlan }: { onChangePlan: () => void
                 </p>
             </Section>
 
-            {/* ── Capability matrix ────────────────────────────────────── */}
-            <Section
-                eyebrow="What's included"
-                description="Exactly which capabilities this plan turns on. Locked rows open the plan chooser."
-            >
-                {features.isPending ? (
-                    <div className="h-40 rounded bg-slate-100 animate-pulse" />
-                ) : (
-                    <div className="rounded-lg border border-slate-200 divide-y divide-slate-200/70 overflow-hidden">
-                        <FeatureRow
-                            label="Mailbox warmup"
-                            hint="Keeps mailboxes conversational and out of spam"
-                            on={features.data?.can_use_warmup ?? access.paid}
-                            minPlan="starter"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Campaign sending"
-                            hint="Sequences, scheduling and per-mailbox pacing"
-                            on={features.data?.can_send_campaigns ?? access.paid}
-                            minPlan="starter"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Unified inbox"
-                            hint="Every reply across every mailbox in one place"
-                            on={features.data?.can_use_unibox ?? access.hasInbox}
-                            minPlan="starter"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Team members"
-                            hint="Invite teammates and assign roles"
-                            on={access.hasTeam}
-                            minPlan="starter"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Bulk contact operations"
-                            hint="Import, bulk edit and bulk enrol"
-                            on={access.hasBulkOps}
-                            minPlan="starter"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Webhooks"
-                            hint="Signed event delivery to your endpoints"
-                            on={access.hasWebhooks}
-                            minPlan="business"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Advanced outreach"
-                            hint="A/B tests and custom sending rules"
-                            on={access.hasAdvanced}
-                            minPlan="business"
-                            onUpgrade={onChangePlan}
-                        />
-                        <FeatureRow
-                            label="Dedicated IPs"
-                            hint="An isolated sending pool for this workspace"
-                            on={access.hasDedicatedIps}
-                            minPlan="business"
-                            onUpgrade={onChangePlan}
-                        />
-                    </div>
-                )}
-            </Section>
         </>
     );
 }
@@ -480,53 +409,6 @@ function UsageMeter({
                     </span>
                 )}
             </div>
-        </div>
-    );
-}
-
-function FeatureRow({
-    label,
-    hint,
-    on,
-    minPlan,
-    onUpgrade,
-}: {
-    label: string;
-    hint: string;
-    on: boolean;
-    minPlan: PlanID;
-    onUpgrade: () => void;
-}) {
-    const plan = getPlan(minPlan);
-    const accent = PLAN_ACCENT_CLASSES[plan.accent];
-    return (
-        <div className="px-3.5 py-2.5 flex items-center gap-3 bg-white">
-            <span
-                className={`size-5 rounded flex items-center justify-center shrink-0 ${
-                    on ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-400"
-                }`}
-            >
-                {on ? <CheckIcon className="w-3 h-3" /> : <LockIcon className="w-3 h-3" />}
-            </span>
-            <div className="min-w-0 flex-1">
-                <div className={`text-[12.5px] font-medium ${on ? "text-slate-900" : "text-slate-500"}`}>
-                    {label}
-                </div>
-                <div className="text-[11px] text-slate-400 leading-snug truncate">{hint}</div>
-            </div>
-            {on ? (
-                <span className="text-[10px] uppercase tracking-[0.08em] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 shrink-0">
-                    On
-                </span>
-            ) : (
-                <button
-                    type="button"
-                    onClick={onUpgrade}
-                    className={`text-[10px] uppercase tracking-[0.08em] font-semibold rounded px-1.5 py-0.5 border shrink-0 transition-transform hover:scale-105 ${accent.pill}`}
-                >
-                    {plan.label}
-                </button>
-            )}
         </div>
     );
 }

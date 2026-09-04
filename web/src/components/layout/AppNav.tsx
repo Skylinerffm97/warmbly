@@ -112,7 +112,7 @@ interface NavItem {
 // upgrade dialog all agree on "what does Starter look like".
 //
 //   inbox / subscription → Starter (any paid tier)
-//   advanced             → Business (15k/day + dedicated IPs tier)
+//   advanced             → Business (15k/day + isolated sending tier)
 const REQUIRES_TO_MIN_PLAN: Record<NonNullable<NavItem["requires"]>, PlanID> = {
     inbox: "starter",
     subscription: "starter",
