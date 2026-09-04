@@ -28,28 +28,24 @@ import { AnimatePresence, motion } from "framer-motion";
 import toast from "react-hot-toast";
 import { TopbarAction } from "@/components/layout/Page";
 import useFeatureAccess from "@/hooks/useFeatureAccess";
+import useUpgradeFlow from "@/hooks/useUpgradeFlow";
 import useSubscription from "@/lib/api/hooks/app/subscription/useSubscription";
-import useCreatePortalSession from "@/lib/api/hooks/app/subscription/useCreatePortalSession";
 import useValidateDiscountCode from "@/lib/api/hooks/app/subscription/useValidateDiscountCode";
-import useCreateCheckoutSession from "@/lib/api/hooks/app/subscription/useCreateCheckoutSession";
-import useChangePlan from "@/lib/api/hooks/app/subscription/useChangePlan";
-import usePlans from "@/lib/api/hooks/app/subscription/usePlans";
 import useAppliedDiscounts from "@/lib/api/hooks/app/subscription/useAppliedDiscounts";
 import useUsageOverview from "@/lib/api/hooks/app/analytics/useUsageOverview";
 import { useAppStore } from "@/stores";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import type DiscountPreview from "@/lib/api/models/app/subscription/DiscountPreview";
 import type { DiscountRedemption } from "@/lib/api/models/app/subscription/DiscountRedemption";
-import type ServerPlan from "@/lib/api/models/app/subscription/Plan";
 import buildError from "@/lib/helper/buildError";
 import { TextInput } from "@/components/ui/field";
 import { AnimatedNumber, DitherMeter, type DitherTone } from "@/components/ui/dither";
+import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import { Row, Section, SectionShell, TableSurface } from "../_components/SectionShell";
 import { PLAN_ACCENT_CLASSES, PAID_PLANS, getPlan, type PlanID } from "@/lib/plans";
+import { describeDiscount, discountedPrice, fmtMoney, type BillingInterval } from "@/lib/pricing";
 import CreditsCard from "./CreditsCard";
 import AIUsageCard from "./AIUsageCard";
-
-type BillingInterval = "monthly" | "annual";
 
 type BillingTab = "overview" | "plans" | "ai" | "payment";
 
@@ -76,12 +72,12 @@ function pathForTab(t: BillingTab): string {
 export default function BillingSettingsPage() {
     const access = useFeatureAccess();
     const sub = useSubscription();
-    const portal = useCreatePortalSession();
     const currentOrg = useAppStore((s) => s.currentOrganization);
     const validateCode = useValidateDiscountCode();
-    const checkout = useCreateCheckoutSession();
-    const changePlan = useChangePlan();
-    const plansQuery = usePlans();
+    // Checkout / plan change / portal live in useUpgradeFlow, shared with the
+    // in-app upgrade dialog.
+    const flow = useUpgradeFlow();
+    const openPortal = flow.openPortal;
     const redemptions = useAppliedDiscounts();
     const usage = useUsageOverview().data;
     const { tab: tabSlug } = useParams();
@@ -136,19 +132,6 @@ export default function BillingSettingsPage() {
         : null;
     const cancelAtEnd = sub.data?.cancel_at_period_end;
 
-    async function openPortal() {
-        try {
-            const { url } = await toast.promise(portal.mutateAsync(), {
-                loading: "Opening billing portal…",
-                success: "Portal ready",
-                error: (e: AppError) => buildError(e),
-            });
-            window.location.assign(url);
-        } catch {
-            /* surfaced */
-        }
-    }
-
     async function applyCode() {
         const code = codeInput.trim();
         if (!code) return;
@@ -171,74 +154,14 @@ export default function BillingSettingsPage() {
         setCodeInput("");
     }
 
-    // Resolve a marketing-catalog plan (e.g. "grow") to the server Plan record
-    // so we can read its Stripe price ID / UUID. Matches by name; returns
-    // undefined when the server has no matching public plan configured.
-    function resolveServerPlan(catalogId: PlanID): ServerPlan | undefined {
-        const label = getPlan(catalogId).label.toLowerCase().trim();
-        const plans = (plansQuery.data ?? []) as ServerPlan[];
-        return plans.find((p) => {
-            const n = (p.name ?? "").toLowerCase().trim();
-            return n === label || n.startsWith(label);
+    // Upgrade/switch to a plan. A valid promo code rides along to Stripe; the
+    // flow picks Checkout, an in-place change, or the portal.
+    function upgrade(catalogId: PlanID) {
+        void flow.upgrade(catalogId, {
+            interval: billingInterval,
+            discountCode: applied?.valid ? applied.code : undefined,
+            returnTo: "/app/settings/billing/plans",
         });
-    }
-
-    // Upgrade/switch to a plan. When a valid promo code is applied it rides
-    // along to Stripe: new subscriptions go through in-app Checkout, existing
-    // paid subscriptions change plan directly. Falls back to the Stripe portal
-    // when the target plan can't be resolved to a configured Stripe price.
-    async function upgrade(catalogId: PlanID) {
-        if (catalogId === "enterprise") {
-            openPortal();
-            return;
-        }
-        const code = applied?.valid ? applied.code : undefined;
-        const target = resolveServerPlan(catalogId);
-        const onPaid = currentPlan.id !== "free";
-        const annual = billingInterval === "annual";
-        const priceId = annual
-            ? target?.stripe_price_id_yearly
-            : target?.stripe_price_id;
-
-        if (!target || (!onPaid && !priceId)) {
-            openPortal();
-            return;
-        }
-
-        try {
-            if (onPaid) {
-                await toast.promise(
-                    changePlan.mutateAsync({
-                        plan_id: target.id,
-                        discount_code: code,
-                        interval: annual ? "year" : "month",
-                    }),
-                    {
-                        loading: "Updating your plan…",
-                        success: "Plan updated",
-                        error: (e: AppError) => buildError(e),
-                    },
-                );
-            } else {
-                const base = `${window.location.origin}/app/settings/billing/plans`;
-                const { checkout_url } = await toast.promise(
-                    checkout.mutateAsync({
-                        price_id: priceId as string,
-                        success_url: `${base}?checkout=success`,
-                        cancel_url: `${base}?checkout=cancel`,
-                        discount_code: code,
-                    }),
-                    {
-                        loading: "Starting checkout…",
-                        success: "Redirecting to checkout…",
-                        error: (e: AppError) => buildError(e),
-                    },
-                );
-                window.location.assign(checkout_url);
-            }
-        } catch {
-            /* surfaced via toast */
-        }
     }
 
     return (
@@ -250,7 +173,7 @@ export default function BillingSettingsPage() {
                     icon={<ExternalLinkIcon className="w-3 h-3" />}
                     onClick={openPortal}
                 >
-                    {portal.isPending ? "Opening…" : "Manage billing"}
+                    {flow.portalPending ? "Opening…" : "Manage billing"}
                 </TopbarAction>
             }
         >
@@ -395,6 +318,7 @@ export default function BillingSettingsPage() {
                                                 active={currentPlan.id === id}
                                                 discount={applied}
                                                 interval={billingInterval}
+                                                pending={flow.pending === id}
                                                 onUpgrade={() => upgrade(id)}
                                             />
                                         ))}
@@ -557,10 +481,10 @@ export default function BillingSettingsPage() {
                                     <button
                                         type="button"
                                         onClick={openPortal}
-                                        disabled={portal.isPending}
+                                        disabled={flow.portalPending}
                                         className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-200 hover:border-slate-300 text-[12px] text-slate-700 hover:text-slate-900 transition-colors disabled:opacity-60"
                                     >
-                                        {portal.isPending ? (
+                                        {flow.portalPending ? (
                                             <Loader2Icon className="w-3 h-3 animate-spin" />
                                         ) : (
                                             <FileTextIcon className="w-3 h-3" />
@@ -577,56 +501,20 @@ export default function BillingSettingsPage() {
     );
 }
 
-function BillingIntervalToggle({
-    interval,
-    onChange,
-}: {
-    interval: BillingInterval;
-    onChange: (i: BillingInterval) => void;
-}) {
-    return (
-        <div className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 p-0.5 text-[12px]">
-            {(["monthly", "annual"] as BillingInterval[]).map((opt) => {
-                const active = interval === opt;
-                return (
-                    <button
-                        key={opt}
-                        type="button"
-                        onClick={() => onChange(opt)}
-                        className={`h-6 px-2.5 rounded inline-flex items-center gap-1 font-medium transition-colors ${
-                            active
-                                ? "bg-white text-slate-900 shadow-sm"
-                                : "text-slate-500 hover:text-slate-700"
-                        }`}
-                    >
-                        {opt === "monthly" ? "Monthly" : "Annual"}
-                        {opt === "annual" && (
-                            <span
-                                className={`text-[10px] font-semibold ${
-                                    active ? "text-emerald-600" : "text-emerald-500"
-                                }`}
-                            >
-                                −20%
-                            </span>
-                        )}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
 function PlanCard({
     id,
     active,
     discount,
     interval,
+    pending,
     onUpgrade,
 }: {
     id: PlanID;
     active: boolean;
     discount?: DiscountPreview | null;
     interval: BillingInterval;
+    /** This plan's checkout / change is in flight. */
+    pending?: boolean;
     onUpgrade: () => void;
 }) {
     const plan = getPlan(id);
@@ -699,13 +587,14 @@ function PlanCard({
             <button
                 type="button"
                 onClick={onUpgrade}
-                disabled={active}
-                className={`h-7 px-2.5 rounded-md text-[11.5px] font-medium transition-colors ${
+                disabled={active || pending}
+                className={`h-7 px-2.5 rounded-md text-[11.5px] font-medium transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-60 ${
                     active
                         ? "bg-slate-100 text-slate-400 cursor-default"
                         : "bg-slate-900 hover:bg-slate-800 text-white"
                 }`}
             >
+                {pending && <Loader2Icon className="w-3 h-3 animate-spin" />}
                 {active ? "Current plan" : id === "enterprise" ? "Contact sales" : "Switch to " + plan.label}
             </button>
         </div>
@@ -848,45 +737,3 @@ function fmtDate(value?: string | null): string {
     });
 }
 
-// describeDiscount renders a short human summary of an applied code.
-function describeDiscount(d: DiscountPreview): string {
-    if (d.type === "trial_extension") {
-        return `+${d.trial_extension_days ?? 0} trial days`;
-    }
-    let base: string;
-    if (d.type === "percent") {
-        base = `${d.percent_off ?? 0}% off`;
-    } else {
-        base = `${(d.currency ?? "usd").toUpperCase()} ${fmtMoney(d.amount_off ?? 0)} off`;
-    }
-    if (d.duration === "forever") return `${base}, forever`;
-    if (d.duration === "repeating" && d.duration_in_months) {
-        return `${base} for ${d.duration_in_months} months`;
-    }
-    return `${base} on your first invoice`;
-}
-
-// discountedPrice returns the discounted price for a money discount, or null
-// when the discount doesn't change the price (trial extensions, custom plans,
-// or no applied code). Works for either the monthly or annual base price.
-function discountedPrice(
-    price: number | null,
-    d: DiscountPreview | null | undefined,
-): number | null {
-    if (price == null || !d || !d.valid) return null;
-    if (d.type === "percent" && d.percent_off != null) {
-        return roundMoney(Math.max(0, price * (1 - d.percent_off / 100)));
-    }
-    if (d.type === "fixed" && d.amount_off != null) {
-        return roundMoney(Math.max(0, price - d.amount_off));
-    }
-    return null;
-}
-
-function roundMoney(n: number): number {
-    return Math.round(n * 100) / 100;
-}
-
-function fmtMoney(n: number): string {
-    return Number.isInteger(n) ? String(n) : n.toFixed(2);
-}

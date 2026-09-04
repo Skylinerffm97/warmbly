@@ -120,30 +120,51 @@ export const PLAN_ACCENT_CLASSES: Record<PlanDef["accent"], {
     dot: string;
     /** Used in the header so the active pill stays readable on the chrome. */
     header: string;
+    /** Upgrade dialog: ring + glow on the highlighted plan card. */
+    ring: string;
+    /** Upgrade dialog: soft tinted wash behind the highlighted card. */
+    soft: string;
+    /** Upgrade dialog: primary CTA on that plan's card. */
+    button: string;
 }> = {
     slate: {
         pill: "bg-slate-100 text-slate-600 border-slate-200",
         dot: "bg-slate-400",
         header: "bg-slate-100 text-slate-600 border-slate-200",
+        ring: "ring-slate-400 shadow-[0_24px_60px_-24px_rgba(100,116,139,0.45)]",
+        soft: "from-slate-50",
+        button: "bg-slate-900 hover:bg-slate-800 text-white",
     },
     green: {
         pill: "bg-emerald-50 text-emerald-700 border-emerald-100",
         dot: "bg-emerald-500",
         header: "bg-emerald-50 text-emerald-700 border-emerald-100",
+        ring: "ring-emerald-500 shadow-[0_24px_60px_-24px_rgba(16,185,129,0.55)]",
+        soft: "from-emerald-50",
+        button: "bg-emerald-600 hover:bg-emerald-700 text-white",
     },
     orange: {
         pill: "bg-amber-50 text-amber-700 border-amber-100",
         dot: "bg-amber-500",
         header: "bg-amber-50 text-amber-700 border-amber-100",
+        ring: "ring-amber-500 shadow-[0_24px_60px_-24px_rgba(245,158,11,0.55)]",
+        soft: "from-amber-50",
+        button: "bg-amber-600 hover:bg-amber-700 text-white",
     },
     indigo: {
         pill: "bg-indigo-50 text-indigo-700 border-indigo-100",
         dot: "bg-indigo-500",
         header: "bg-indigo-50 text-indigo-700 border-indigo-100",
+        ring: "ring-indigo-500 shadow-[0_24px_60px_-24px_rgba(99,102,241,0.55)]",
+        soft: "from-indigo-50",
+        button: "bg-indigo-600 hover:bg-indigo-700 text-white",
     },
     gradient: {
         pill: "bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-blue-100",
         dot: "bg-gradient-to-r from-blue-500 to-purple-500",
         header: "bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-blue-100",
+        ring: "ring-purple-500 shadow-[0_24px_60px_-24px_rgba(147,51,234,0.5)]",
+        soft: "from-purple-50",
+        button: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white",
     },
 };
