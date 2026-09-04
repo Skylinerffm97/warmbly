@@ -2,11 +2,14 @@ package repository
 
 import (
 	"context"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/warmbly/warmbly/internal/models"
+	"github.com/warmbly/warmbly/internal/utils/paging"
 )
 
 // Live cover for the contact timeline's lifecycle events and first-touch
@@ -181,5 +184,119 @@ func TestLiveContactSourceCampaignResolvesName(t *testing.T) {
 		Email: "i255-bad-" + uuid.New().String()[:8] + "@test.local", Source: "website",
 	}}); xerr == nil {
 		t.Fatal("an unknown source must be refused, not stored")
+	}
+}
+
+// Live cover for the timeline's cursor (issue #305): events that share a
+// timestamp, within one source and across sources, must land on one side of
+// a page boundary or the other, never be skipped and never repeat, and a page
+// filled by a single source must still report that more follow.
+//
+//	WARMBLY_TEST_DB=postgres://warmbly:warmbly@localhost:15432/warmbly_dev?sslmode=disable \
+//	  go test ./internal/repository/ -run LiveContactTimelinePages -v
+func TestLiveContactTimelinePagesOnTiesWithoutGapsOrRepeats(t *testing.T) {
+	handle, pool := liveContactDB(t)
+	f := newSharedOrgFixture(t, pool)
+	ctx := context.Background()
+	repo := NewContactRepostory(handle)
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed %q: %v", sql[:min(60, len(sql))], err)
+		}
+	}
+	at := time.Date(2026, 6, 9, 11, 42, 0, 250000000, time.UTC)
+	step := uuid.New()
+	exec(`INSERT INTO sequences (id, campaign_id, organization_id, name, subject, body_plain, body_html) VALUES ($1, $2, $3, 'Intro', 'Quick question', '', '')`, step, f.campaign, f.org)
+	// Three stamps on one lead at the same instant: sent, a summary open
+	// (nothing in email_opens stands for it) and a reply.
+	exec(`INSERT INTO campaign_contact_progress (campaign_id, contact_id, sequence_id, sent_at, opened_at, replied_at) VALUES ($1, $2, $3, $4, $4, $4)`,
+		f.campaign, f.contact, step, at)
+	for i := 0; i < 3; i++ {
+		exec(`INSERT INTO contact_notes (contact_id, organization_id, user_id, content, created_at) VALUES ($1, $2, $3, $4, $5)`,
+			f.contact, f.org, f.owner, "note "+strconv.Itoa(i), at)
+	}
+	exec(`INSERT INTO contact_notes (contact_id, organization_id, user_id, content, created_at) VALUES ($1, $2, $3, 'older', $4)`,
+		f.contact, f.org, f.owner, at.Add(-time.Hour))
+	for i := 0; i < 2; i++ {
+		exec(`INSERT INTO contact_activities (contact_id, organization_id, user_id, activity_type, metadata, created_at) VALUES ($1, $2, $3, 'campaign_added', '{"campaign_name":"Agency partnerships"}', $4)`,
+			f.contact, f.org, f.owner, at)
+	}
+	exec(`INSERT INTO contact_activities (contact_id, organization_id, user_id, activity_type, metadata, created_at) VALUES ($1, $2, $3, 'contact_created', '{"source":"manual"}', $4)`,
+		f.contact, f.org, f.owner, at.Add(time.Hour))
+	t.Cleanup(func() {
+		c := context.Background()
+		_, _ = pool.Exec(c, `DELETE FROM contact_activities WHERE contact_id = $1`, f.contact)
+		_, _ = pool.Exec(c, `DELETE FROM contact_notes WHERE contact_id = $1`, f.contact)
+		_, _ = pool.Exec(c, `DELETE FROM campaign_contact_progress WHERE contact_id = $1`, f.contact)
+		_, _ = pool.Exec(c, `DELETE FROM sequences WHERE id = $1`, step)
+	})
+	const total = 10 // 3 stamps + 4 notes + 3 activities
+
+	// Walk the feed three at a time: a page of three can be filled by the
+	// notes at `at` alone, and eight events share that instant.
+	var all []models.ContactTimelineEvent
+	var cursor *models.ContactTimelineKey
+	for page := 0; ; page++ {
+		res, xerr := repo.ListTimeline(ctx, f.owner, &f.org, f.contact, 3, cursor)
+		if xerr != nil {
+			t.Fatalf("page %d: %v", page, xerr)
+		}
+		if res.HasMore != res.Pagination.HasMore {
+			t.Fatalf("page %d: has_more %v disagrees with pagination.has_more %v", page, res.HasMore, res.Pagination.HasMore)
+		}
+		all = append(all, res.Data...)
+		if !res.HasMore {
+			if res.Pagination.NextCursor != nil {
+				t.Fatalf("last page must carry no cursor, got %q", *res.Pagination.NextCursor)
+			}
+			break
+		}
+		if res.Pagination.NextCursor == nil || len(res.Data) != 3 {
+			t.Fatalf("page %d: has_more with %d events and cursor %v", page, len(res.Data), res.Pagination.NextCursor)
+		}
+		cAt, cSource, cID, xerr := paging.DecodeMergedCursor(*res.Pagination.NextCursor)
+		if xerr != nil {
+			t.Fatalf("page %d: cursor does not decode: %v", page, xerr)
+		}
+		if last := res.Data[2].Key; !cAt.Equal(last.At) || models.ContactTimelineSource(cSource) != last.Source || cID != last.ID {
+			t.Fatalf("page %d: cursor %v/%d/%s is not the last event's key %+v", page, cAt, cSource, cID, last)
+		}
+		cursor = &models.ContactTimelineKey{At: cAt, Source: models.ContactTimelineSource(cSource), ID: cID}
+		if page > total {
+			t.Fatal("the walk never ends")
+		}
+	}
+	if len(all) != total {
+		t.Fatalf("want %d events across the pages, got %d: %+v", total, len(all), all)
+	}
+	seen := map[models.ContactTimelineKey]bool{}
+	for i, e := range all {
+		if seen[e.Key] {
+			t.Fatalf("event %d repeated across pages: %+v", i, e.Key)
+		}
+		seen[e.Key] = true
+		if i > 0 && !e.Key.Before(all[i-1].Key) {
+			t.Fatalf("feed out of order at %d: %+v then %+v", i, all[i-1].Key, e.Key)
+		}
+	}
+	for typ, want := range map[models.ContactTimelineEventType]int{
+		models.TimelineEmailSent: 1, models.TimelineEmailOpened: 1, models.TimelineEmailReplied: 1,
+		models.TimelineNote: 4, models.TimelineCampaignAdded: 2, models.TimelineContactCreated: 1,
+	} {
+		if n := countTimeline(all, typ, nil); n != want {
+			t.Fatalf("want %d %s events, got %d", want, typ, n)
+		}
+	}
+
+	// The legacy bare timestamp still means "strictly older than": rank zero
+	// sits below every source, so nothing at that instant qualifies.
+	res, xerr := repo.ListTimeline(ctx, f.owner, &f.org, f.contact, 50, &models.ContactTimelineKey{At: at})
+	if xerr != nil {
+		t.Fatalf("before: %v", xerr)
+	}
+	if len(res.Data) != 1 || res.Data[0].Type != models.TimelineNote || res.HasMore {
+		t.Fatalf("want only the older note before %s, got %+v (has_more %v)", at, res.Data, res.HasMore)
 	}
 }
