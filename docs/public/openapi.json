@@ -4286,7 +4286,7 @@
                   "step_id": {
                     "type": "string",
                     "format": "uuid",
-                    "description": "Scope the attachment to one sequence step."
+                    "description": "Scope the attachment to one sequence step of this campaign, which is then the only step that sends it. Omit to attach the file to every step. A step of another campaign is 404."
                   }
                 }
               }
@@ -20757,7 +20757,8 @@
               "string",
               "null"
             ],
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The sequence step that sends this file. Null means every step of the campaign sends it."
           },
           "filename": {
             "type": "string"
@@ -21226,6 +21227,26 @@
           "body_plain": {
             "type": "string"
           },
+          "contact_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A contact of the organization to render for. Omitted renders the built-in sample. Requires READ_CONTACTS."
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Campaign whose opt-out footer, plain-text setting and attachments apply."
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Mailbox whose signature applies and which is reported as the sender."
+          },
+          "step_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The step being previewed, so the attachment list is the one that step sends. Omitted lists the campaign-wide files only."
+          },
           "contact": {
             "type": "object",
             "description": "Override fields on the built-in sample contact.",
@@ -21281,6 +21302,42 @@
               "type": "string"
             },
             "description": "Literal {{...}} tokens left after render. Omitted when empty."
+          },
+          "from": {
+            "type": "object",
+            "description": "The sender as recipients see it. Present when account_id was given.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "format": "email"
+              }
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "description": "The files this send carries: the campaign-wide attachments plus step_id's own. Present when campaign_id was given and there are any.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "description": "Size in bytes."
+                },
+                "mime_type": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },

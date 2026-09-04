@@ -417,9 +417,10 @@ func (s *tasksService) HandleCampaignTask(task *proto.ProcessTask) *errx.Error {
 		return nil
 	}
 
-	// Load campaign attachments (campaign-wide; metadata only — the worker
-	// fetches the bytes from object storage by S3 key at send time).
-	attachmentRefs := s.campaignAttachmentRefs(ctx, campaign.ID)
+	// Load this step's attachments (campaign-wide files plus the step's own;
+	// metadata only — the worker fetches the bytes from object storage by S3
+	// key at send time).
+	attachmentRefs := s.campaignAttachmentRefs(ctx, campaign.ID, sequence.ID)
 
 	// STEP 7.5: Update campaign task with contact_id and sequence_id for tracking
 	// This allows the tracking consumer to find the correct contact/sequence when

@@ -17,6 +17,14 @@ type AttachmentRepository interface {
 	Create(ctx context.Context, att *models.CampaignAttachment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*models.CampaignAttachment, error)
 	ListByCampaign(ctx context.Context, campaignID uuid.UUID) ([]models.CampaignAttachment, error)
+	// ListForStep returns what one step's send carries: the campaign-wide files
+	// (no sequence_id) plus the ones scoped to that step. uuid.Nil asks for the
+	// campaign-wide set alone.
+	ListForStep(ctx context.Context, campaignID, sequenceID uuid.UUID) ([]models.CampaignAttachment, error)
+	// StepBelongsToCampaign guards the sequence_id an upload names: the FK only
+	// proves the step exists, not that it is a step of this campaign, and one
+	// pointed at another campaign's step would never be sent by either.
+	StepBelongsToCampaign(ctx context.Context, campaignID, sequenceID uuid.UUID) (bool, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	// SumStorageUsedByOrg totals the bytes of every attachment owned by the org
 	// (joined through campaigns) — the basis for the per-plan storage quota.
@@ -76,6 +84,34 @@ func (r *attachmentRepository) ListByCampaign(ctx context.Context, campaignID uu
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func (r *attachmentRepository) ListForStep(ctx context.Context, campaignID, sequenceID uuid.UUID) ([]models.CampaignAttachment, error) {
+	rows, err := r.DB.Query(ctx, `SELECT `+attachmentCols+`
+		FROM campaign_attachments
+		WHERE campaign_id = $1 AND (sequence_id IS NULL OR sequence_id = $2)
+		ORDER BY created_at ASC`, campaignID, sequenceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.CampaignAttachment, 0)
+	for rows.Next() {
+		var a models.CampaignAttachment
+		if err := scanAttachment(rows, &a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (r *attachmentRepository) StepBelongsToCampaign(ctx context.Context, campaignID, sequenceID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.DB.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM sequences WHERE id = $1 AND campaign_id = $2)`,
+		sequenceID, campaignID).Scan(&ok)
+	return ok, err
 }
 
 func (r *attachmentRepository) Delete(ctx context.Context, id uuid.UUID) error {

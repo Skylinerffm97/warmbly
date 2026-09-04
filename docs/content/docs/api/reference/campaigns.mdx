@@ -563,7 +563,7 @@ An `ABWinnerAnalysis` object.
 
 `GET /campaigns/:id/attachments`
 
-List the campaign's attachments. Each entry carries a short-lived presigned download `url`. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`.
+List every attachment of the campaign. Each entry carries a short-lived presigned download `url` and its `step_id`: a file scoped to a step is sent by that step alone, and a `null` `step_id` means every step of the campaign sends it. **Scope** `READ_CAMPAIGNS` · **Org permission** `view_campaigns`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
@@ -594,13 +594,13 @@ A `data` array of attachment objects (no pagination wrapper).
 
 `POST /campaigns/:id/attachments`
 
-Upload a file to attach to the campaign (or one step). Sent as `multipart/form-data`, not JSON. **Scope** `WRITE_CAMPAIGNS` · **Org permission** `manage_campaigns`.
+Upload a file to attach to the campaign, or to one of its steps. Sent as `multipart/form-data`, not JSON. **Scope** `WRITE_CAMPAIGNS` · **Org permission** `manage_campaigns`.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |
 | `id` | path | uuid | Campaign id. |
 | `file` | form (multipart) | file | Required. The file to upload (max 15 MB). Executable and script types are rejected. |
-| `step_id` | form (multipart) | uuid | Optional. Scope the attachment to one sequence step. |
+| `step_id` | form (multipart) | uuid | Optional. Scope the attachment to one sequence step of this campaign, which is then the only step that sends it. Omit it to attach the file to every step. A step of another campaign returns `404`. |
 
 ### Response
 
@@ -660,7 +660,7 @@ A `PreflightReport` object.
 
 `POST /campaigns/:id/test-email`
 
-Send a one-off test of a sequence step to a chosen recipient through a chosen mailbox. The message is assembled the way a real send is: merge fields and spintax resolve for the contact, the campaign's attachments are attached, the mailbox signature and the campaign's opt-out footer are appended, and a plain-text campaign ships without an HTML part. The subject is prefixed with `[TEST]`. Opens and clicks on a test are never tracked, and its opt-out link names no contact, so clicking it suppresses nobody. Defaults to the first step when `step_id` is omitted. **Scope** `SEND_CAMPAIGNS` · **Org permission** `send_campaigns`.
+Send a one-off test of a sequence step to a chosen recipient through a chosen mailbox. The message is assembled the way a real send is: merge fields and spintax resolve for the contact, the files that step sends are attached (the campaign's unscoped attachments plus that step's own), the mailbox signature and the campaign's opt-out footer are appended, and a plain-text campaign ships without an HTML part. The subject is prefixed with `[TEST]`. Opens and clicks on a test are never tracked, and its opt-out link names no contact, so clicking it suppresses nobody. Defaults to the first step when `step_id` is omitted. **Scope** `SEND_CAMPAIGNS` · **Org permission** `send_campaigns`.
 
 The mailbox may be any mailbox of the organization, not only one the caller connected, and it does not have to be in the campaign's sender pool. An API key with an `allowed_email_accounts` list can only test from those mailboxes. Passing `contact_id` additionally requires `READ_CONTACTS` (org permission `view_contacts`), since the rendered copy reads that contact's fields.
 
@@ -1069,6 +1069,7 @@ Render subject and body templates for a contact exactly as the send path would, 
 | `contact_id` | uuid | no | A contact of the organization to render for, with its custom fields. Omitted uses the built-in sample contact. |
 | `contact` | object | no | Override fields on the contact being rendered for (the sample or the one from `contact_id`): `first_name`, `last_name`, `email`, `company`, `phone`, and a `custom_fields` map of string to string. |
 | `campaign_id` | uuid | no | Campaign of the organization whose opt-out footer, plain-text setting and attachments apply. The opt-out link in the preview names no contact. |
+| `step_id` | uuid | no | The step being previewed, so `attachments` lists what that step sends. Without it only the campaign-wide files are listed. |
 | `account_id` | uuid | no | Mailbox of the organization whose signature is appended (when signature sync is on) and which is reported as `from`. |
 
 ```json
@@ -1083,7 +1084,7 @@ Render subject and body templates for a contact exactly as the send path would, 
 
 ### Response
 
-A `TemplatePreview` object. `errors` lists template parse errors that would block sending, `unresolved` lists literal tokens left after render. `from` is present when `account_id` was given, `attachments` when `campaign_id` was given and the campaign has files attached. All four are omitted when empty.
+A `TemplatePreview` object. `errors` lists template parse errors that would block sending, `unresolved` lists literal tokens left after render. `from` is present when `account_id` was given, `attachments` when `campaign_id` was given and there are files on the send (the campaign-wide ones plus `step_id`'s own). All four are omitted when empty.
 
 ```json
 {

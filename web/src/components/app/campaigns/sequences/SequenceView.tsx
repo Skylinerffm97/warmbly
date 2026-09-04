@@ -124,7 +124,8 @@ export default function SequenceView({
                     bodyHtml={draft.body_html}
                     onBodyChange={(html, plain) => patch({ body_html: html, body_plain: plain })}
                     campaignId={campaignId}
-                    testStepId={sequence.id}
+                    stepId={sequence.id}
+                    canSendTest
                     dirty={savable}
                 />
 

@@ -49,7 +49,8 @@ export default function EmailContentEditor({
     subjectPlaceholder = "Quick question, {{.FirstName}}",
     bodyPlaceholder = "Hi {{.FirstName}}, …",
     campaignId,
-    testStepId,
+    stepId,
+    canSendTest = false,
     dirty = false,
 }: {
     subject: string;
@@ -61,8 +62,12 @@ export default function EmailContentEditor({
     // When set, the preview renders for a chosen lead and mailbox and shows the
     // campaign's opt-out footer, signature and attachments.
     campaignId?: string;
-    // When set, the preview offers "Send test" for this saved step.
-    testStepId?: string;
+    // The saved step this copy is sent by, so the preview lists the files that
+    // step attaches.
+    stepId?: string;
+    // Offer "Send test" for that step. Off for a variant arm: the test send
+    // mails the step's saved copy, which is not what this arm holds.
+    canSendTest?: boolean;
     // Unsaved edits: the test send mails the saved step, so it waits for a save.
     dirty?: boolean;
 }) {
@@ -103,6 +108,7 @@ export default function EmailContentEditor({
                 ...(campaignId && previewContact ? { contact_id: previewContact.id } : {}),
                 ...(campaignId ? { campaign_id: campaignId } : {}),
                 ...(campaignId && previewMailbox ? { account_id: previewMailbox.id } : {}),
+                ...(campaignId && stepId ? { step_id: stepId } : {}),
             })
                 .then((p) => {
                     if (active) setServerPreview(p);
@@ -116,7 +122,7 @@ export default function EmailContentEditor({
             clearTimeout(t);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, subject, bodyHtml, previewContact?.id, campaignId, previewMailbox?.id]);
+    }, [tab, subject, bodyHtml, previewContact?.id, campaignId, previewMailbox?.id, stepId]);
 
     const tplIssue = templateIssue(subject) || templateIssue(bodyHtml) || templateIssue(htmlToPlain(bodyHtml));
 
@@ -245,11 +251,11 @@ export default function EmailContentEditor({
                                 <span className="px-1 text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">Preview as</span>
                                 <PreviewContactPicker campaignId={campaignId} value={previewContact} onChange={setPreviewContact} />
                                 <PreviewMailboxPicker inboxes={senders.inboxes} value={previewMailbox} onChange={setPreviewMailbox} />
-                                {testStepId && (
+                                {stepId && canSendTest && (
                                     <div className="ml-auto">
                                         <SendTestButton
                                             campaignId={campaignId}
-                                            stepId={testStepId}
+                                            stepId={stepId}
                                             contact={previewContact}
                                             mailbox={previewMailbox}
                                             dirty={dirty}
