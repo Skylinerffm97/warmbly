@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_campaign_progress_dispatch_task;
