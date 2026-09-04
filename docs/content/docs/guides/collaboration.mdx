@@ -34,6 +34,12 @@ Indicators are workspace-scoped. Teammates see only your name, avatar, current p
 
 **Events are permission-aware**: a member without inbox access never receives unibox events, and billing events reach only those who can manage billing. See [Team roles](/guides/team-roles/).
 
+## Connection status
+
+A dot in the header reports the live connection: green **Live** when it is healthy, amber **Slow connection** or red **Poor connection** when heartbeats are taking longer than they should, amber **Reconnecting...** while it retries, and red **Disconnected** when it is down. The reading comes from the measured round trip to the realtime service, so amber means your connection genuinely is slow rather than merely busy.
+
+Nothing is lost while it is down. Warmbly refreshes what it can on a slower cycle so counts and lists still move, and on reconnect it refetches everything that could have drifted, since live events are not replayed after the fact. On a self-hosted install a permanently disconnected dot usually means the realtime service is not running; see [troubleshooting](/development/troubleshooting/).
+
 ## Live cursors and chat
 
 On a shared page you see each other's cursors move, tagged with avatar and name, across the contacts table, deal board, unibox, settings, and everywhere else. On app-scrolling pages the cursor tracks content as either person scrolls.
