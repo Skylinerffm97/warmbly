@@ -265,14 +265,18 @@ func TestLiveSegmentCampaignLinks(t *testing.T) {
 		t.Fatalf("unknown segment accepted")
 	}
 	links, xerr := repo.ListForCampaign(ctx, f.org, f.other)
-	if xerr != nil || len(links) != 1 || links[0].SegmentID != acme.ID || links[0].ContactCount != 2 {
+	if xerr != nil || len(links) != 1 || links[0].SegmentID != acme.ID || links[0].ContactCount != 2 || links[0].LeadCount != 0 {
 		t.Fatalf("links = %+v, %v", links, xerr)
 	}
 
-	// Sync enrols current members once; a second pass adds nothing.
-	added, xerr := repo.SyncCampaignSegments(ctx, f.org, f.other)
-	if xerr != nil || added != 2 {
-		t.Fatalf("sync = %d, %v", added, xerr)
+	// Replacing the set enrols current members in the same transaction; a
+	// second pass adds nothing.
+	added, status, xerr := repo.ReplaceForCampaign(ctx, f.org, f.other, []uuid.UUID{acme.ID})
+	if xerr != nil || added != 2 || status == "" {
+		t.Fatalf("replace = %d, %q, %v", added, status, xerr)
+	}
+	if links, _ = repo.ListForCampaign(ctx, f.org, f.other); len(links) != 1 || links[0].LeadCount != 2 || links[0].HeldOutCount != 0 {
+		t.Fatalf("links after replace = %+v", links)
 	}
 	if added, _ = repo.SyncCampaignSegments(ctx, f.org, f.other); added != 0 {
 		t.Fatalf("second sync = %d, want 0", added)
@@ -298,6 +302,12 @@ func TestLiveSegmentCampaignLinks(t *testing.T) {
 	if added, _ = repo.SyncCampaignSegments(ctx, f.org, f.other); added != 0 {
 		t.Fatalf("sync after manual removal = %d, want 0", added)
 	}
+	// The link reports the split the Leads tab explains: three members, two
+	// of them leads, one held out by the removal.
+	links, xerr = repo.ListForCampaign(ctx, f.org, f.other)
+	if xerr != nil || len(links) != 1 || links[0].ContactCount != 3 || links[0].LeadCount != 2 || links[0].HeldOutCount != 1 {
+		t.Fatalf("links after removal = %+v, %v", links, xerr)
+	}
 	if _, xerr := contacts.BulkUpdate(ctx, f.owner.String(), f.org, &models.BulkEditContactsData{
 		Contacts: []string{f.bob.String()}, AddCampaigns: []string{f.other.String()},
 	}); xerr != nil {
@@ -306,6 +316,9 @@ func TestLiveSegmentCampaignLinks(t *testing.T) {
 	var removals int
 	if err := handle.QueryRow(ctx, `SELECT COUNT(*) FROM campaign_lead_removals WHERE campaign_id = $1`, f.other).Scan(&removals); err != nil || removals != 0 {
 		t.Fatalf("removals after manual re-add = %d, %v", removals, err)
+	}
+	if links, _ = repo.ListForCampaign(ctx, f.org, f.other); len(links) != 1 || links[0].LeadCount != 3 || links[0].HeldOutCount != 0 {
+		t.Fatalf("links after manual re-add = %+v", links)
 	}
 	if _, xerr := contacts.BulkUpdate(ctx, f.owner.String(), f.org, removeBob); xerr != nil {
 		t.Fatalf("remove again: %v", xerr)

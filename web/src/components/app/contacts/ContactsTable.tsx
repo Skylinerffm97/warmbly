@@ -62,7 +62,7 @@ import toast from "react-hot-toast";
 import type { AppError } from "@/lib/api/client/normalizeError";
 import buildError from "@/lib/helper/buildError";
 import FilterBar from "./filters/FilterBar";
-import { isCompleteCustomFilter } from "./filters/helpers";
+import { hasNarrowingFilters, isCompleteCustomFilter, scopeSearch } from "./filters/helpers";
 import ContactEdit from "./ContactEdit";
 import type { ContactSlideTab } from "./contact-edit/tabs";
 import type MiniCampaign from "@/lib/api/models/app/campaigns/MiniCampaign";
@@ -78,7 +78,11 @@ import SegmentEditor from "@/components/app/segments/SegmentEditor";
 import { filtersToSegment } from "@/components/app/segments/filtersToSegment";
 import type { SegmentCondition } from "@/lib/api/models/app/segments/Segment";
 import CampaignSegmentsDialog from "@/components/app/segments/CampaignSegmentsDialog";
-import { useCampaignSegments, useSetSegmentMembers } from "@/lib/api/hooks/app/segments";
+import LinkedSegmentsStrip from "@/components/app/segments/LinkedSegmentsStrip";
+import { linksEmptyReason } from "@/components/app/segments/linkedSegments";
+import type { CampaignSegmentLink } from "@/lib/api/models/app/segments/Segment";
+import { useAddSegmentToCampaign, useCampaignSegments, useSetSegmentMembers } from "@/lib/api/hooks/app/segments";
+import type { ExportScopeContext } from "./ExportDialog";
 import useUpdateContactsBulk from "@/lib/api/hooks/app/contacts/useUpdateContactsBulk";
 import useAiMetered from "@/hooks/useAiMetered";
 import SyncSourcesPanel from "./SyncSourcesPanel";
@@ -146,13 +150,8 @@ export default function ContactsTable({
     const [searchProps, setSearchProps] = React.useState<SearchContacts>(() => {
         const category = params.get("category");
         return {
-            query: "",
-            filters: [],
-            campaign_ids: current_campaign ? [current_campaign.id] : [],
-            segment_ids: segment ? [segment.id] : undefined,
+            ...scopeSearch({ campaignId: current_campaign?.id, segmentId: segment?.id }),
             category_ids: category && !segment && !current_campaign ? [category] : undefined,
-            sort_by: "created_at",
-            reverse: false,
         };
     });
 
@@ -182,8 +181,56 @@ export default function ContactsTable({
     }
     const contactsBulkDelete = useDeleteContacts();
     const bulkUpdate = useUpdateContactsBulk();
-    // Linked segments (live audience) for the toolbar badge on a Leads tab.
+    // Linked segments (live audience) for the strip and badge on a Leads tab.
     const campaignSegments = useCampaignSegments(current_campaign?.id, !!current_campaign);
+    const linkedSegments = React.useMemo(() => campaignSegments.data ?? [], [campaignSegments.data]);
+    // Members removed from the campaign by hand are held out of automatic
+    // enrolment; the one-shot enrol clears those records and adds them back.
+    const reenrol = useAddSegmentToCampaign();
+    const reenrolling = reenrol.isPending ? (reenrol.variables?.id ?? null) : null;
+    // One link from the strip, or every link with held-out members from the
+    // empty state; the one-shot enrol clears the removals segment by segment.
+    function reenrolSegments(links: CampaignSegmentLink[]) {
+        if (!current_campaign || reenrol.isPending || links.length === 0) return;
+        const held = links.reduce((n, l) => n + l.held_out_count, 0);
+        const names = links.map((l) => l.name).join(", ");
+        confirm?.show(
+            `Add the ${held.toLocaleString()} held-out member${held === 1 ? "" : "s"} of ${names} back to this campaign? Every current member of ${links.length === 1 ? "the segment" : "these segments"} becomes a lead again, including the ones removed by hand.`,
+            async () => {
+                let added = 0;
+                try {
+                    for (const l of links) {
+                        const res = await reenrol.mutateAsync({ id: l.segment_id, campaignId: current_campaign.id });
+                        added += res.added;
+                    }
+                    toast.success(`Added ${added.toLocaleString()} lead${added === 1 ? "" : "s"} back`);
+                } catch (err) {
+                    toast.error(buildError(err as AppError));
+                }
+            },
+        );
+    }
+    // A linked-segment chip scopes the list to that segment's leads; clicking
+    // the active one shows every lead again.
+    const activeSegmentId = searchProps.segment_ids?.length === 1 ? searchProps.segment_ids[0] : undefined;
+    const toggleSegmentScope = (id: string) =>
+        setSearchProps((s) => ({ ...s, segment_ids: activeSegmentId === id ? undefined : [id] }));
+    // The list's own scope with nothing narrowing it: what "clear filters"
+    // returns to, and what "everyone" means in the export dialog here.
+    const baseFilters = React.useMemo<SearchContacts>(
+        () => ({
+            ...scopeSearch({ campaignId: current_campaign?.id, segmentId: segment?.id }),
+            sort_by: searchProps.sort_by,
+            reverse: searchProps.reverse,
+        }),
+        [current_campaign, segment, searchProps.sort_by, searchProps.reverse],
+    );
+    const exportScope = React.useMemo<ExportScopeContext | undefined>(() => {
+        if (current_campaign) return { kind: "campaign", name: current_campaign.name, baseFilters };
+        if (segment) return { kind: "segment", name: segment.name, baseFilters };
+        return undefined;
+    }, [current_campaign, segment, baseFilters]);
+    const [filterResetToken, setFilterResetToken] = React.useState(0);
 
     // In a campaign, "remove" detaches the leads; the contacts themselves stay.
     async function removeFromCampaign(ids: string[]) {
@@ -357,13 +404,27 @@ export default function ContactsTable({
     const embedded = !!current_campaign;
     // Leads-view scope chips write straight into the search request, so the
     // rows, the total and pagination all come from the server for that scope.
-    const leadFilterActive = !!searchProps.lead_status || !!searchProps.engagement;
+    // Anything that narrows the list beyond its scope (the campaign or the
+    // segment): an empty result then means "nothing matches", not "no leads".
+    const narrowed = hasNarrowingFilters(searchProps, baseFilters);
     const setLeadStatus = (v: LeadStatus | undefined) =>
         setSearchProps((s) => ({ ...s, lead_status: s.lead_status === v ? undefined : v }));
     const setEngagement = (v: LeadEngagement | undefined) =>
         setSearchProps((s) => ({ ...s, engagement: s.engagement === v ? undefined : v }));
-    const clearLeadFilters = () =>
-        setSearchProps((s) => ({ ...s, lead_status: undefined, engagement: undefined }));
+    const clearLeadFilters = () => {
+        setSearchProps(baseFilters);
+        setFilterResetToken((n) => n + 1);
+    };
+    // Why a campaign with linked segments still has no leads, in one line;
+    // unknown while the links are still loading or failed to load.
+    const linkedEmptyReason =
+        current_campaign && campaignSegments.isSuccess && linkedSegments.length > 0
+            ? linksEmptyReason(linkedSegments)
+            : null;
+    const linksPending = !!current_campaign && campaignSegments.isPending;
+    const heldOutLinks = linkedSegments.filter((l) => l.held_out_count > 0);
+    const heldOut = heldOutLinks.reduce((n, l) => n + l.held_out_count, 0);
+    const canReenrol = heldOut > 0 && campaignWrite.allowed;
     const tableNode = (
         <ContactsTableBody
             embedded={embedded}
@@ -398,33 +459,59 @@ export default function ContactsTable({
             emptyTitle={
                 subFilter !== "all"
                     ? `No ${subFilter} contacts`
-                    : leadFilterActive
-                        ? "No leads match"
-                        : current_campaign
-                            ? "No contacts in this campaign"
-                            : "No contacts yet"
+                    : narrowed
+                        ? current_campaign
+                            ? "No leads match"
+                            : "No contacts match"
+                        : linkedEmptyReason
+                            ? "No leads from your linked segments yet"
+                            : linksPending
+                                ? "No leads loaded yet"
+                                : current_campaign
+                                    ? "No contacts in this campaign"
+                                : segment
+                                    ? "No contacts in this segment"
+                                    : "No contacts yet"
             }
             emptyBody={
                 subFilter !== "all"
                     ? "Switch to All to see the full list."
-                    : leadFilterActive
-                        ? "Clear the status or engagement filter to see every lead."
-                        : current_campaign
-                            ? "Pick people from your contacts, import a file, or add one by hand."
-                            : "Add or upload contacts to get started."
+                    : narrowed
+                        ? `Clear the filters to see every ${current_campaign ? "lead" : "contact"}.`
+                        : linkedEmptyReason
+                            ? linkedEmptyReason
+                            : linksPending
+                                ? "Checking the campaign's linked segments…"
+                                : current_campaign
+                                    ? campaignSegments.isError
+                                        ? "Pick people from your contacts, import a file, or add one by hand. The linked segments could not be loaded."
+                                        : "Pick people from your contacts, link a segment, import a file, or add one by hand."
+                                : segment
+                                    ? "Nobody matches its conditions yet. Adjust them or pin contacts in."
+                                    : "Add or upload contacts to get started."
             }
             emptyCta={
                 subFilter !== "all" ? (
                     <TopbarAction variant="ghost" onClick={() => setSubFilter("all")}>
                         Show all
                     </TopbarAction>
-                ) : leadFilterActive ? (
+                ) : narrowed ? (
                     <TopbarAction variant="ghost" onClick={clearLeadFilters}>
-                        Show all leads
+                        {current_campaign ? "Show all leads" : "Clear filters"}
                     </TopbarAction>
-                ) : current_campaign ? (
-                    <div className="flex items-center justify-center gap-1.5">
+                ) : linksPending ? null : current_campaign ? (
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                        {canReenrol && (
+                            <TopbarAction
+                                icon={<UserPlusIcon className="w-3 h-3" />}
+                                onClick={() => reenrolSegments(heldOutLinks)}
+                                disabled={reenrol.isPending}
+                            >
+                                Add {heldOut.toLocaleString()} back
+                            </TopbarAction>
+                        )}
                         <TopbarAction
+                            variant={canReenrol ? "ghost" : "primary"}
                             icon={<UsersIcon className="w-3 h-3" />}
                             onClick={() => setFromContactsOpen(true)}
                         >
@@ -435,7 +522,7 @@ export default function ContactsTable({
                             icon={<LayersIcon className="w-3 h-3" />}
                             onClick={() => campaignWrite.guard(() => setFromSegmentOpen(true))({})}
                         >
-                            Link a segment
+                            {linkedSegments.length > 0 || campaignSegments.isError ? "Manage segments" : "Link a segment"}
                         </TopbarAction>
                         <TopbarAction
                             variant="ghost"
@@ -500,16 +587,32 @@ export default function ContactsTable({
                         Sheet sync
                     </TopbarAction>
                     <TopbarAction
+                        variant="ghost"
+                        icon={<DownloadIcon className="w-3 h-3" />}
+                        onClick={() => setExportOpen(true)}
+                    >
+                        Export
+                    </TopbarAction>
+                    <TopbarAction
                         icon={<UserPlusIcon className="w-3 h-3" />}
                         onClick={() => setNewOpen(true)}
                     >
                         Add lead
                     </TopbarAction>
                 </SectionBar>
+                <LinkedSegmentsStrip
+                    links={linkedSegments}
+                    activeSegmentId={activeSegmentId}
+                    onToggle={toggleSegmentScope}
+                    onManage={() => campaignWrite.guard(() => setFromSegmentOpen(true))({})}
+                    onReenrol={campaignWrite.allowed ? (l) => reenrolSegments([l]) : undefined}
+                    reenrolling={reenrolling}
+                />
                 <FilterBar
                     filters={searchProps}
                     setFilters={setSearchProps}
                     activeCampaign={current_campaign}
+                    resetToken={filterResetToken}
                     total={total}
                     loading={contactsData.isFetching}
                     onSaveAsSegment={saveAsSegment}
@@ -588,6 +691,14 @@ export default function ContactsTable({
                     open={fromSegmentOpen}
                     onClose={() => setFromSegmentOpen(false)}
                     campaign={current_campaign}
+                />
+                <ExportDialog
+                    open={exportOpen}
+                    onClose={() => setExportOpen(false)}
+                    filters={searchOptions}
+                    selectedIds={selected}
+                    totalKnown={total}
+                    scopeContext={exportScope}
                 />
             </>
         );
@@ -751,6 +862,7 @@ export default function ContactsTable({
                 filters={searchProps}
                 setFilters={setSearchProps}
                 hideSegments={!!segment}
+                resetToken={filterResetToken}
                 total={total}
                 loading={contactsData.isFetching}
                 onSaveAsSegment={saveAsSegment}
@@ -811,9 +923,10 @@ export default function ContactsTable({
             <ExportDialog
                 open={exportOpen}
                 onClose={() => setExportOpen(false)}
-                filters={searchProps}
+                filters={searchOptions}
                 selectedIds={selected}
                 totalKnown={total}
+                scopeContext={exportScope}
             />
             <ImportWizard
                 open={importOpen}

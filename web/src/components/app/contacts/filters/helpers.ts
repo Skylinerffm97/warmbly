@@ -24,3 +24,38 @@ export function countActiveFilters(f: SearchContacts, campaignContext: boolean):
     return n;
 }
 
+// Whether anything narrows the list beyond its scope. `base` is the scope's
+// own request (a campaign's or a segment's ids), which does not count as a
+// filter; without it every id list does.
+export function hasNarrowingFilters(f: SearchContacts, base?: SearchContacts): boolean {
+    const same = (a?: string[], b?: string[]) => (a ?? []).join(",") === (b ?? []).join(",");
+    return (
+        !!f.query ||
+        f.filters.some(isCompleteCustomFilter) ||
+        !same(f.campaign_ids, base?.campaign_ids) ||
+        !same(f.segment_ids, base?.segment_ids) ||
+        (f.category_ids?.length ?? 0) > 0 ||
+        f.subscribed !== undefined ||
+        !!f.verification_status ||
+        !!f.lead_status ||
+        !!f.engagement ||
+        f.min_campaigns !== undefined ||
+        f.max_campaigns !== undefined ||
+        !!f.created_after ||
+        !!f.created_before ||
+        !!f.updated_after ||
+        !!f.updated_before
+    );
+}
+
+// The request for a list's own scope with nothing narrowing it.
+export function scopeSearch(scope: { campaignId?: string; segmentId?: string }): SearchContacts {
+    return {
+        query: "",
+        filters: [],
+        campaign_ids: scope.campaignId ? [scope.campaignId] : [],
+        segment_ids: scope.segmentId ? [scope.segmentId] : undefined,
+        sort_by: "created_at",
+        reverse: false,
+    };
+}
