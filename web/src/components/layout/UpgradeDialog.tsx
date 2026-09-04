@@ -10,7 +10,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "framer-motion";
 import toast from "react-hot-toast";
 import {
     ArrowRightIcon,
@@ -47,7 +47,7 @@ import {
     type BillingInterval,
 } from "@/lib/pricing";
 import { TextInput } from "@/components/ui/field";
-import AnimatedNumber from "@/components/ui/AnimatedNumber";
+import RollingNumber from "@/components/ui/RollingNumber";
 import BillingIntervalToggle from "@/components/app/billing/BillingIntervalToggle";
 import { cn } from "@/lib/utils";
 
@@ -186,11 +186,22 @@ export default function UpgradeDialog({
                                 <div className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">
                                     Choose a plan
                                 </div>
-                                <p className="text-[12.5px] text-slate-500 mt-0.5">
-                                    {billingInterval === "annual"
-                                        ? "Annual billing, two months free every year."
-                                        : "Monthly billing, switch or cancel any time."}
-                                </p>
+                                <div className="relative h-[18px] mt-0.5 overflow-hidden">
+                                    <AnimatePresence initial={false} mode="popLayout">
+                                        <motion.p
+                                            key={billingInterval}
+                                            initial={reduced ? { opacity: 0 } : { opacity: 0, y: 14 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -14 }}
+                                            transition={{ duration: 0.26, ease: EASE }}
+                                            className="absolute inset-0 text-[12.5px] text-slate-500"
+                                        >
+                                            {billingInterval === "annual"
+                                                ? "Annual billing, two months free every year."
+                                                : "Monthly billing, switch or cancel any time."}
+                                        </motion.p>
+                                    </AnimatePresence>
+                                </div>
                             </div>
                             <BillingIntervalToggle interval={billingInterval} onChange={setBillingInterval} size="md" />
                         </div>
@@ -494,6 +505,27 @@ function PlanCard({
     const disc = discountedPrice(base, discount);
     const shown = disc ?? base;
     const custom = base == null;
+    const yearlySaving =
+        plan.priceMonthly != null && plan.priceAnnual != null
+            ? Math.round((plan.priceMonthly - plan.priceAnnual) * 12)
+            : 0;
+
+    // Flipping the interval pulses the price and sweeps a sheen across the
+    // card, staggered so the row reads left to right. Mount is handled by the
+    // entrance animation below, so skip the first run.
+    const priceControls = useAnimationControls();
+    const mounted = React.useRef(false);
+    React.useEffect(() => {
+        if (!mounted.current) {
+            mounted.current = true;
+            return;
+        }
+        if (reduced) return;
+        priceControls.start({
+            scale: [1, 1.05, 1],
+            transition: { duration: 0.5, ease: EASE, delay: index * 0.05 },
+        });
+    }, [interval, reduced, index, priceControls]);
 
     const sends =
         plan.sendsPerDay === Number.POSITIVE_INFINITY
@@ -509,13 +541,32 @@ function PlanCard({
             transition={{ duration: 0.38, ease: EASE, delay: 0.12 + index * 0.07 }}
             whileHover={reduced || !unlocks ? undefined : { y: -3 }}
             className={cn(
-                "relative rounded-xl border bg-white p-5 flex flex-col transition-shadow",
+                // `isolate` so the sheen's negative z-index stays above the card
+                // background but below the card's own content.
+                "relative isolate rounded-xl border bg-white p-5 flex flex-col transition-shadow",
                 recommended
                     ? cn("border-transparent ring-2 bg-gradient-to-b to-white", accent.ring, accent.soft)
                     : "border-slate-200 hover:shadow-[0_16px_40px_-24px_rgba(15,23,42,0.35)]",
                 !unlocks && "opacity-70",
             )}
         >
+            {/* Sheen that sweeps the card when the interval flips. Its own
+                clipping layer so the ribbon above can still overhang. */}
+            <span className="pointer-events-none absolute inset-0 -z-10 rounded-xl overflow-hidden">
+                <AnimatePresence>
+                    {!reduced && (
+                        <motion.span
+                            key={interval}
+                            initial={{ x: "-140%" }}
+                            animate={{ x: "140%" }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.85, ease: "easeOut", delay: index * 0.06 }}
+                            className="absolute inset-y-0 w-2/3 bg-gradient-to-r from-transparent via-slate-900/[0.07] to-transparent"
+                        />
+                    )}
+                </AnimatePresence>
+            </span>
+
             {recommended && (
                 <motion.span
                     initial={reduced ? false : { opacity: 0, y: 4 }}
@@ -549,21 +600,24 @@ function PlanCard({
             <p className="mt-1.5 text-[12px] text-slate-500 leading-snug min-h-[32px]">{plan.description}</p>
 
             {/* Price */}
-            <div className="mt-4 flex items-baseline gap-1.5">
+            <motion.div
+                animate={priceControls}
+                style={{ transformOrigin: "left bottom" }}
+                className="mt-4 flex items-baseline gap-1.5"
+            >
                 {custom ? (
                     <span className="text-[30px] font-semibold tracking-[-0.03em] text-slate-900">Custom</span>
                 ) : (
                     <>
                         <span
                             className={cn(
-                                "text-[32px] font-semibold tracking-[-0.03em] tabular-nums leading-none",
+                                "text-[32px] font-semibold tracking-[-0.03em] tabular-nums leading-none inline-flex items-end",
                                 disc != null ? "text-emerald-700" : "text-slate-900",
                             )}
                         >
                             $
-                            <AnimatedNumber
+                            <RollingNumber
                                 value={shown as number}
-                                duration={0.45}
                                 format={(n) => fmtMoney(Math.round(n * 100) / 100)}
                             />
                         </span>
@@ -575,13 +629,33 @@ function PlanCard({
                         )}
                     </>
                 )}
-            </div>
-            <div className="mt-1 text-[11px] text-slate-400 h-4 tabular-nums">
-                {custom
-                    ? "tailored to your volume"
-                    : annual
-                      ? `billed annually, $${fmtMoney((shown as number) * 12)} / yr`
-                      : "billed monthly"}
+            </motion.div>
+            <div className="relative mt-1 h-4 overflow-hidden">
+                <AnimatePresence initial={false} mode="popLayout">
+                    <motion.div
+                        key={interval}
+                        initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={reduced ? { opacity: 0 } : { opacity: 0, y: -12 }}
+                        transition={{ duration: 0.28, ease: EASE, delay: index * 0.04 }}
+                        className="absolute inset-0 flex items-center gap-1.5 text-[11px] text-slate-400 tabular-nums"
+                    >
+                        {custom ? (
+                            "tailored to your volume"
+                        ) : annual ? (
+                            <>
+                                <span>billed annually</span>
+                                {yearlySaving > 0 && (
+                                    <span className="inline-flex items-center h-4 px-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-semibold">
+                                        save ${yearlySaving} / yr
+                                    </span>
+                                )}
+                            </>
+                        ) : (
+                            "billed monthly"
+                        )}
+                    </motion.div>
+                </AnimatePresence>
             </div>
 
             {/* Headline limit */}
