@@ -6854,7 +6854,7 @@
             }
           },
           "400": {
-            "description": "Invalid contact ID, limit or cursor, or no organization selected.",
+            "description": "Invalid contact ID, limit, cursor or before timestamp, or no organization selected.",
             "content": {
               "application/json": {
                 "schema": {

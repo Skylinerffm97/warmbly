@@ -673,7 +673,7 @@ Auth: **Scope** `READ_CONTACTS` · **Org permission** `view_contacts`
 | `id` | path | UUID | Contact ID. |
 | `limit` | query | integer | Page size, 1 to 200 (default 50). Anything else is a `400`. |
 | `cursor` | query | string | Opaque pagination cursor from `pagination.next_cursor`. A malformed cursor is a `400`. |
-| `before` | query | string (RFC 3339 nano) | Deprecated. Returns the events strictly older than this timestamp, which can skip events that share an instant with the page boundary; use `cursor`. Ignored when `cursor` is set. |
+| `before` | query | string (RFC 3339 nano) | Deprecated. Returns the events strictly older than this timestamp, which can skip events that share an instant with the page boundary; use `cursor`. A value that is not an RFC 3339 timestamp is a `400`. Ignored when `cursor` is set. |
 
 ### Response
 
