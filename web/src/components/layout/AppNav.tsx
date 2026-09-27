@@ -693,8 +693,17 @@ function Section({
     const { pathname } = useLocation();
     const sectionCollapsed = useAppStore((s) => s.navCollapsedSections[section.label] ?? false);
     const toggleNavSection = useAppStore((s) => s.toggleNavSection);
+    const { canManage } = useFeatureAccess();
     const active = section.items.some((item) => isNavItemActive(pathname, item));
     const hidden = !collapsed && sectionCollapsed;
+    const visibleItems = collapsed
+        ? section.items.filter((item) =>
+            (!sectionCollapsed || isNavItemActive(pathname, item)) &&
+            (item.rolesAllowed !== "manage" || canManage),
+        )
+        : section.items;
+
+    if (collapsed && visibleItems.length === 0) return null;
 
     return (
         <div className={first ? "" : "mt-4 pt-4 border-t border-slate-200/50"}>
@@ -721,7 +730,7 @@ function Section({
                 </div>
             )}
             <div id={id} hidden={hidden} className="space-y-px">
-                {section.items.map((it) => (
+                {visibleItems.map((it) => (
                     <NavRow key={it.url} item={it} collapsed={collapsed} />
                 ))}
             </div>
