@@ -13,6 +13,7 @@ import {
     CableIcon,
     CalendarClockIcon,
     CheckSquareIcon,
+    ChevronDownIcon,
     CircleDollarSignIcon,
     FileTextIcon,
     FlameIcon,
@@ -33,7 +34,7 @@ import {
     XIcon,
     ZapIcon,
 } from "lucide-react";
-import { type ReactElement, type ReactNode, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useId, useMemo, useState } from "react";
 import { useAppStore } from "@/stores";
 import useFeatureAccess from "@/hooks/useFeatureAccess";
 import { usePermission, type PermissionKey } from "@/hooks/usePermission";
@@ -207,6 +208,10 @@ const ICON_ROW = "group relative mx-auto flex size-8 items-center justify-center
 const LABEL_ROW = "group relative mx-2 w-[calc(100%-1rem)] flex items-center gap-2.5 px-2.5 h-7 rounded-md text-[12.5px] transition-colors duration-100";
 const rowClass = (collapsed: boolean) => (collapsed ? ICON_ROW : LABEL_ROW);
 
+function isNavItemActive(pathname: string, item: NavItem): boolean {
+    return pathname === item.url || pathname.startsWith(item.url + "/");
+}
+
 function NavRow({ item, collapsed = false }: { item: NavItem; collapsed?: boolean }) {
     const { pathname } = useLocation();
     const unseen = useAppStore((s) => s.unseenCount);
@@ -214,8 +219,7 @@ function NavRow({ item, collapsed = false }: { item: NavItem; collapsed?: boolea
     const hasItemPermission = usePermission(item.permission ?? "VIEW_CAMPAIGNS");
     const [deniedOpen, setDeniedOpen] = useState(false);
     const upgradeDialog = useUpgradeDialog();
-    const active =
-        pathname === item.url || pathname.startsWith(item.url + "/");
+    const active = isNavItemActive(pathname, item);
     const badge = item.badgeStoreKey === "unseenCount" ? unseen : undefined;
 
     // Role-gated items disappear from the sidebar for users that
@@ -685,18 +689,38 @@ function Section({
     first?: boolean;
     collapsed?: boolean;
 }) {
+    const id = useId();
+    const { pathname } = useLocation();
+    const sectionCollapsed = useAppStore((s) => s.navCollapsedSections[section.label] ?? false);
+    const toggleNavSection = useAppStore((s) => s.toggleNavSection);
+    const active = section.items.some((item) => isNavItemActive(pathname, item));
+    const hidden = !collapsed && sectionCollapsed;
+
     return (
         <div className={first ? "" : "mt-4 pt-4 border-t border-slate-200/50"}>
             {/* Collapsed, the hairline above the group carries the grouping on
                 its own — a tracked-uppercase label does not fit in 56px. */}
             {!collapsed && (
                 <div className="px-4 mb-1.5">
-                    <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium">
+                    <button
+                        type="button"
+                        aria-expanded={!hidden}
+                        aria-controls={id}
+                        onClick={() => toggleNavSection(section.label)}
+                        className="text-[10px] uppercase tracking-[0.14em] text-slate-400 font-medium inline-flex items-center gap-1.5 rounded-sm hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                    >
                         {section.label}
-                    </span>
+                        {hidden && active && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" aria-hidden />
+                        )}
+                        <ChevronDownIcon
+                            className={cn("w-3 h-3 transition-transform", hidden && "-rotate-90")}
+                            aria-hidden
+                        />
+                    </button>
                 </div>
             )}
-            <div className="space-y-px">
+            <div id={id} hidden={hidden} className="space-y-px">
                 {section.items.map((it) => (
                     <NavRow key={it.url} item={it} collapsed={collapsed} />
                 ))}
