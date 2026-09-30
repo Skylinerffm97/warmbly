@@ -19,6 +19,9 @@ export {
   UNIBOX_LIST_MIN_WIDTH,
   UNIBOX_LIST_MAX_WIDTH,
   UNIBOX_LIST_DEFAULT_WIDTH,
+  UNIBOX_RAIL_MIN_WIDTH,
+  UNIBOX_RAIL_MAX_WIDTH,
+  UNIBOX_RAIL_DEFAULT_WIDTH,
 } from './slices/uiSlice'
 export type { ShortcutSlice } from './slices/shortcutSlice'
 export type { DataSlice } from './slices/dataSlice'

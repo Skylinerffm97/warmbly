@@ -28,6 +28,9 @@ import {
   UNIBOX_LIST_DEFAULT_WIDTH,
   UNIBOX_LIST_MAX_WIDTH,
   UNIBOX_LIST_MIN_WIDTH,
+  UNIBOX_RAIL_DEFAULT_WIDTH,
+  UNIBOX_RAIL_MAX_WIDTH,
+  UNIBOX_RAIL_MIN_WIDTH,
 } from "@/stores";
 import { uniboxListMaxWidth, uniboxThreadReserve } from "@/lib/uniboxLayout";
 import { useResizablePane } from "@/hooks/useResizablePane";
@@ -66,9 +69,12 @@ export default function UniboxPage() {
   // width the column does not have.
   const listWidth = useAppStore((s) => s.uniboxListWidth);
   const setListWidth = useAppStore((s) => s.setUniboxListWidth);
+  const railWidth = useAppStore((s) => s.uniboxRailWidth);
+  const setRailWidth = useAppStore((s) => s.setUniboxRailWidth);
   const contactRailOpen = useAppStore((s) => s.uniboxContactRailOpen);
   const isWide = useMediaQuery(LG_QUERY);
   const rowRef = React.useRef<HTMLDivElement>(null);
+  const railRef = React.useRef<HTMLElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
   const [maxWidth, setMaxWidth] = React.useState(UNIBOX_LIST_MAX_WIDTH);
 
@@ -109,8 +115,23 @@ export default function UniboxPage() {
     sync();
     const ro = new ResizeObserver(sync);
     ro.observe(row);
+    // A rail drag moves the list's left edge without resizing the row.
+    if (railRef.current) ro.observe(railRef.current);
     return () => ro.disconnect();
-  }, [measureMax]);
+  }, [measureMax, railWidth]);
+
+  const { width: renderedRailWidth, separatorProps: railSeparatorProps } = useResizablePane({
+    value: railWidth,
+    onChange: setRailWidth,
+    min: UNIBOX_RAIL_MIN_WIDTH,
+    max: UNIBOX_RAIL_MAX_WIDTH,
+    defaultValue: UNIBOX_RAIL_DEFAULT_WIDTH,
+    paneRef: railRef,
+    cssVar: "--unibox-rail-w",
+    label: "Resize the scope rail",
+    controls: "unibox-scope-rail",
+    valueText: (w) => `Scope rail ${w} pixels`,
+  });
 
   // The splitter itself: pointer capture, the body lock, the window-splitter
   // keys and the ARIA bundle all live in the shared hook, which the assistant
@@ -447,9 +468,21 @@ export default function UniboxPage() {
         />
 
         <div ref={rowRef} className="flex-1 min-h-0 flex">
-          <aside className="hidden lg:flex w-[220px] shrink-0 h-full">
+          <aside
+            ref={railRef}
+            id="unibox-scope-rail"
+            style={{ "--unibox-rail-w": `${renderedRailWidth}px` } as React.CSSProperties}
+            className="hidden lg:flex w-[var(--unibox-rail-w)] shrink-0 h-full [&>nav]:border-r-0"
+          >
             <ScopeRail scope={scope} onChange={setScope} />
           </aside>
+
+          <div
+            {...railSeparatorProps}
+            className="group hidden lg:flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center outline-none"
+          >
+            <span className="w-px bg-slate-200 transition-[background-color,width] group-hover:bg-sky-400 group-active:bg-sky-500 group-focus-visible:w-0.5 group-focus-visible:bg-sky-500" />
+          </div>
 
           {scope.kind === "scheduled" ? (
             // Scheduled scope takes the full right side — a

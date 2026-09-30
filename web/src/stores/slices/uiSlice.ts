@@ -19,6 +19,15 @@ export interface UniboxRailFavorite {
   name?: string
 }
 
+export const UNIBOX_RAIL_MIN_WIDTH = 180
+export const UNIBOX_RAIL_MAX_WIDTH = 360
+export const UNIBOX_RAIL_DEFAULT_WIDTH = 220
+
+export const clampUniboxRailWidth = (w: unknown): number => {
+  if (typeof w !== 'number' || !Number.isFinite(w)) return UNIBOX_RAIL_DEFAULT_WIDTH
+  return Math.round(Math.min(UNIBOX_RAIL_MAX_WIDTH, Math.max(UNIBOX_RAIL_MIN_WIDTH, w)))
+}
+
 // Exported because rehydration bypasses the setter: zustand's default merge
 // writes localStorage straight into state, so the clamp has to run there too or
 // a hand-edited (or newly out-of-range) value reaches the DOM unchecked.
@@ -70,6 +79,7 @@ export interface UISlice {
   // against the thread pane; the CRM rail remembers the last explicit toggle
   // so closing it survives opening the next thread.
   uniboxListWidth: number
+  uniboxRailWidth: number
   uniboxContactRailOpen: boolean
 
   // Actions - Sidebar
@@ -103,6 +113,7 @@ export interface UISlice {
 
   // Actions - Unibox layout
   setUniboxListWidth: (width: number) => void
+  setUniboxRailWidth: (width: number) => void
   setUniboxContactRailOpen: (open: boolean) => void
 }
 
@@ -204,6 +215,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
 
   // Unibox layout
   uniboxListWidth: UNIBOX_LIST_DEFAULT_WIDTH,
+  uniboxRailWidth: UNIBOX_RAIL_DEFAULT_WIDTH,
   uniboxContactRailOpen: false,
 
   // Actions - Sidebar
@@ -279,6 +291,10 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   toggleAIAssistant: () => set((state) => ({ aiAssistantOpen: !state.aiAssistantOpen })),
 
   // Actions - Unibox layout
+  setUniboxRailWidth: (width) => {
+    const uniboxRailWidth = clampUniboxRailWidth(width)
+    set((state) => (state.uniboxRailWidth === uniboxRailWidth ? state : { uniboxRailWidth }))
+  },
   setUniboxListWidth: (width) => {
     const uniboxListWidth = clampUniboxListWidth(width)
     set((state) => (state.uniboxListWidth === uniboxListWidth ? state : { uniboxListWidth }))
