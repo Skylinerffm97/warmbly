@@ -92,8 +92,14 @@ export default function useMarkSeen() {
             if (seen) queryClient.invalidateQueries({ queryKey: ["notifications", "feed"] });
             // A folder sweep touches rows we have no ids for, and unread skips
             // sent copies a row may be showing, so both re-read the lists.
-            if (folder || !seen) queryClient.invalidateQueries({ queryKey: ["unibox"] });
-            else {
+            if (folder) queryClient.invalidateQueries({ queryKey: ["unibox"] });
+            else if (!seen) {
+                // A body GET marks the message read server-side.
+                queryClient.invalidateQueries({
+                    queryKey: ["unibox"],
+                    predicate: (query) => query.queryKey[1] !== "email",
+                });
+            } else {
                 queryClient.invalidateQueries({ queryKey: ["unibox", "overview"] });
                 queryClient.invalidateQueries({ queryKey: ["unibox", "unseen-count"] });
             }

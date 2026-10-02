@@ -76,6 +76,9 @@ vi.mock("@/hooks/context/socket", async (orig) => {
 const seenPatches = () =>
     calls.filter((c) => c.method === "PATCH" && c.url === "/unibox/seen");
 
+const bodyGets = () =>
+    calls.filter((c) => c.method === "GET" && ROWS.some((row) => c.url === `/unibox/${row.id}`));
+
 const rowFor = (i: number) =>
     screen
         .getAllByText(ROWS[i].subject)
@@ -104,6 +107,7 @@ describe("unibox mark as unread", SUITE, () => {
         const patches = seenPatches();
         expect(patches.length).toBeGreaterThan(0);
         expect(patches.every((p) => p.data?.seen === false)).toBe(true);
+        expect(bodyGets()).toEqual([]);
         // By conversation only: naming every message would mark our own sent
         // copies unread too, where the server picks the newest received one.
         expect(patches[0].data).toMatchObject({ email_ids: [], thread_ids: [ROWS[0].thread_id] });
@@ -127,5 +131,6 @@ describe("unibox mark as unread", SUITE, () => {
         const patches = seenPatches();
         expect(patches.length).toBeGreaterThan(0);
         expect(patches.every((p) => p.data?.seen === false)).toBe(true);
+        expect(bodyGets()).toEqual([]);
     });
 });
