@@ -144,6 +144,7 @@ export function ConversationItem({
       role="button"
       tabIndex={0}
       onClick={open}
+      {...menu.longPressProps}
       onContextMenu={(e) => {
         // React bubbles a right-click inside the portaled menu up to here;
         // that one should leave the menu where it is.
@@ -167,7 +168,7 @@ export function ConversationItem({
       className={cn(
         // The actions overlay the timestamp on a pointer device; on touch they
         // are always shown, so the row reserves the width instead.
-        "group relative w-full cursor-pointer text-left pl-3 pr-11 md:pr-4 py-2.5 flex items-start gap-2 transition-colors",
+        "group relative w-full cursor-pointer text-left pl-3 pr-11 md:pr-4 py-2.5 flex items-start gap-2 transition-colors [@media(any-pointer:coarse)]:select-none [@media(any-pointer:coarse)]:[-webkit-touch-callout:none]",
         selected
           ? "bg-sky-100/60"
           : isSelected

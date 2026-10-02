@@ -910,8 +910,8 @@ func (r *uniboxRepository) MarkSeenBulk(ctx context.Context, orgID uuid.UUID, id
 // MarkSeenByThreads is MarkSeenBulk addressed by conversation. The key is the
 // same one the list collapses on, so an id that never got a thread still
 // resolves to its own single message. Read covers the whole conversation;
-// unread, as in Gmail, only its newest received message, preferring one that
-// is not in spam or trash.
+// unread selects its newest received message, preferring one outside spam or
+// trash, or its newest sent copy if none was received. Drafts are excluded.
 func (r *uniboxRepository) MarkSeenByThreads(ctx context.Context, orgID uuid.UUID, threadIDs []string, seen bool) ([]uuid.UUID, error) {
 	if len(threadIDs) == 0 {
 		return nil, nil
@@ -926,10 +926,10 @@ func (r *uniboxRepository) MarkSeenByThreads(ctx context.Context, orgID uuid.UUI
 			SELECT DISTINCT ON (COALESCE(NULLIF(thread_id, ''), id::text)) id
 			FROM unibox_emails
 			WHERE COALESCE(NULLIF(thread_id, ''), id::text) = ANY($3)
-			  AND folder NOT IN ` + foldersOutbound + `
+			  AND folder <> 'drafts'
 			  AND email_id IN (SELECT id FROM email_accounts WHERE organization_id = $2)
 			ORDER BY COALESCE(NULLIF(thread_id, ''), id::text),
-			         folder IN ('spam', 'trash'), internal_date DESC, id DESC
+			         folder = 'sent', folder IN ('spam', 'trash'), internal_date DESC, id DESC
 		 )
 		 RETURNING id`
 	}

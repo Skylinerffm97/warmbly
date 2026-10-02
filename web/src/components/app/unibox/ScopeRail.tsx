@@ -778,8 +778,9 @@ function SectionHeader({
   };
   return (
     <div
-      className="group/section h-7 pl-4 pr-3 flex items-center gap-1"
+      className="group/section h-7 pl-4 pr-3 flex items-center gap-1 [@media(any-pointer:coarse)]:select-none [@media(any-pointer:coarse)]:[-webkit-touch-callout:none]"
       onContextMenu={editing ? undefined : sectionMenu.onContextMenu}
+      {...(editing ? {} : sectionMenu.longPressProps)}
     >
       <button
         type="button"
@@ -1619,7 +1620,11 @@ function MenuRow({
 }) {
   const rowMenu = useAnchoredMenu();
   const body = (
-    <div className="group/folder relative" onContextMenu={rowMenu.onContextMenu}>
+    <div
+      className="group/folder relative [@media(any-pointer:coarse)]:select-none [@media(any-pointer:coarse)]:[-webkit-touch-callout:none]"
+      onContextMenu={rowMenu.onContextMenu}
+      {...rowMenu.longPressProps}
+    >
       <button
         type="button"
         data-rail-row={row.key}
