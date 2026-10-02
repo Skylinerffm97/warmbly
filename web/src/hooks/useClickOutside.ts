@@ -14,6 +14,7 @@ interface Layer {
 }
 
 const layers: Layer[] = [];
+const frameShields = new Map<HTMLIFrameElement, { count: number; prev: string }>();
 
 const FOCUSABLE = "button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex=\"-1\"])";
 
@@ -83,9 +84,18 @@ export default function useClickOutside(open: boolean, onClose: () => void, insi
         // same-origin frame's own document is listened to as well. A frame
         // (re)loading while open is picked up on its load.
         const frameDocs = new Set<Document>();
+        const shieldedFrames = new Set<HTMLIFrameElement>();
         const onFramePress = () => self.close();
         const watchFrame = (frame: HTMLIFrameElement) => {
             if (isInside(frame)) return;
+            // iOS/WebKit may deliver neither focus nor events in script-sandboxed frames.
+            if (!shieldedFrames.has(frame)) {
+                const shield = frameShields.get(frame) ?? { count: 0, prev: frame.style.pointerEvents };
+                shield.count++;
+                frameShields.set(frame, shield);
+                shieldedFrames.add(frame);
+                frame.style.pointerEvents = "none";
+            }
             const doc = frame.contentDocument;
             if (!doc || frameDocs.has(doc)) return;
             doc.addEventListener("pointerdown", onFramePress, true);
@@ -97,6 +107,10 @@ export default function useClickOutside(open: boolean, onClose: () => void, insi
             watchFrame(frame);
             frame.addEventListener("load", onFrameLoad);
         }
+        const onDocumentLoad = (e: Event) => {
+            if (e.target instanceof HTMLIFrameElement) watchFrame(e.target);
+        };
+        document.addEventListener("load", onDocumentLoad, true);
         // Capture phase: dialogs stop mousedown propagation on their card so the
         // backdrop does not close them, which would otherwise swallow this too.
         // Pointer events so a tap closes it on touch screens as well.
@@ -107,6 +121,14 @@ export default function useClickOutside(open: boolean, onClose: () => void, insi
             clearTimeout(blurTimer);
             for (const doc of frameDocs) doc.removeEventListener("pointerdown", onFramePress, true);
             for (const frame of frames) frame.removeEventListener("load", onFrameLoad);
+            document.removeEventListener("load", onDocumentLoad, true);
+            for (const frame of shieldedFrames) {
+                const shield = frameShields.get(frame)!;
+                if (--shield.count === 0) {
+                    frame.style.pointerEvents = shield.prev;
+                    frameShields.delete(frame);
+                }
+            }
             document.removeEventListener("pointerdown", onPointerDown, true);
             document.removeEventListener("keydown", onKey, true);
             window.removeEventListener("blur", onBlur);
