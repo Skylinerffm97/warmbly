@@ -35,6 +35,65 @@ const toggle = (name: string) => fireEvent.click(screen.getByRole("button", { na
 const isOpen = (name: string) => !!screen.queryByTestId(`${name}-panel`);
 
 describe("useClickOutside", () => {
+    it("shields an outside iframe while open and restores its previous inline pointer events", () => {
+        render(
+            <>
+                <Drop name="A" />
+                <iframe title="body" style={{ pointerEvents: "auto" }} />
+            </>,
+        );
+        const frame = screen.getByTitle("body");
+        toggle("A");
+        expect(frame.style.pointerEvents).toBe("none");
+        toggle("A");
+        expect(frame.style.pointerEvents).toBe("auto");
+    });
+
+    it("keeps an outside iframe shielded until the last nested layer closes", () => {
+        render(
+            <>
+                <Drop name="Outer">
+                    <Drop name="Inner" />
+                </Drop>
+                <iframe title="body" />
+            </>,
+        );
+        const frame = screen.getByTitle("body");
+        toggle("Outer");
+        toggle("Inner");
+        expect([isOpen("Outer"), isOpen("Inner")]).toEqual([true, true]);
+        expect(frame.style.pointerEvents).toBe("none");
+        toggle("Inner");
+        expect(isOpen("Outer")).toBe(true);
+        expect(frame.style.pointerEvents).toBe("none");
+        toggle("Outer");
+        expect(frame.style.pointerEvents).toBe("");
+    });
+
+    it("leaves a frame inside the layer's inline pointer events untouched", () => {
+        render(
+            <Drop name="A">
+                <iframe title="preview" style={{ pointerEvents: "auto" }} />
+            </Drop>,
+        );
+        toggle("A");
+        expect(screen.getByTitle("preview").style.pointerEvents).toBe("auto");
+    });
+
+    it("closes on a parent-document press on the element holding an outside iframe", () => {
+        render(
+            <>
+                <Drop name="A" />
+                <div data-testid="body-wrapper">
+                    <iframe title="body" />
+                </div>
+            </>,
+        );
+        toggle("A");
+        fireEvent.pointerDown(screen.getByTestId("body-wrapper"));
+        expect(isOpen("A")).toBe(false);
+    });
+
     it("closes on a press outside, and not on one inside it or a floating layer it opened", () => {
         render(
             <>
